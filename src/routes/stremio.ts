@@ -1071,13 +1071,7 @@ export function registerStremioRoutes(app, database, settings, config, requester
                 else {
                     streams.push({
                         name: 'My-Media-Dock',
-                        description: `⬇ Download Movie (Best Quality)\n⚡ 1-click auto download`,
-                        url: `${settings.baseUrl}/addon/${encodeURIComponent(accessToken)}/download/movie/${encodeURIComponent(id)}`,
-                        behaviorHints: { bingeGroup: `nuvi-flow:dl:movie:${id}` }
-                    });
-                    streams.push({
-                        name: 'My-Media-Dock',
-                        description: `⚙ Choose Quality in Browser\nPick 4K UHD, 1080p, Remux...`,
+                        description: `⬇ Download Movie\nChoose quality & source`,
                         externalUrl: `${settings.baseUrl}/downloads/choose?type=movie&id=${encodeURIComponent(id)}&mode=movie`,
                         behaviorHints: { bingeGroup: `nuvi-flow:choose:movie:${id}` }
                     });
@@ -1122,13 +1116,7 @@ export function registerStremioRoutes(app, database, settings, config, requester
                 else {
                     streams.push({
                         name: 'My-Media-Dock',
-                        description: `⬇ Download S${ss}E${ee} (Best Quality)\n⚡ 1-click auto download & stream`,
-                        url: `${settings.baseUrl}/addon/${encodeURIComponent(accessToken)}/download/episode/${encodeURIComponent(id)}`,
-                        behaviorHints: { bingeGroup: `nuvi-flow:dl:ep:${id}` }
-                    });
-                    streams.push({
-                        name: 'My-Media-Dock',
-                        description: `⚙ Choose Quality in Browser\nPick 4K UHD, 1080p, Remux...`,
+                        description: `⬇ Download S${ss}E${ee}\nChoose quality & source`,
                         externalUrl: `${settings.baseUrl}/downloads/choose?type=series&id=${encodeURIComponent(id)}&mode=episode`,
                         behaviorHints: { bingeGroup: `nuvi-flow:choose:ep:${id}` }
                     });
@@ -1162,13 +1150,7 @@ export function registerStremioRoutes(app, database, settings, config, requester
             else if (remainingEps > 0) {
                 streams.push({
                     name: 'My-Media-Dock',
-                    description: `⬇ Download Season ${parsedSeries.season} (Best Quality)\n⚡ 1-click download ${remainingEps} remaining eps`,
-                    url: `${settings.baseUrl}/addon/${encodeURIComponent(accessToken)}/download/season/${encodeURIComponent(id)}`,
-                    behaviorHints: { bingeGroup: `nuvi-flow:dl:season:${id}` }
-                });
-                streams.push({
-                    name: 'My-Media-Dock',
-                    description: `⚙ Choose Season ${parsedSeries.season} Quality in Browser\nPick release pack or profile`,
+                    description: `⬇ Download Season ${parsedSeries.season}\nChoose season release`,
                     externalUrl: `${settings.baseUrl}/downloads/choose?type=series&id=${encodeURIComponent(id)}&mode=season`,
                     behaviorHints: { bingeGroup: `nuvi-flow:choose:season:${id}` }
                 });
