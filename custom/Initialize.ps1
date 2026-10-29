@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)]
-    [string]$MediaRoot
+    [Parameter(Mandatory = $false)]
+    [string]$MediaRoot = 'C:\StremioMedia',
+    [switch]$Wsl = $true
 )
 
 $ErrorActionPreference = 'Stop'
@@ -14,7 +15,7 @@ if (Test-Path -LiteralPath $envFile) {
 
 $mediaFullPath = [System.IO.Path]::GetFullPath($MediaRoot)
 if ($mediaFullPath -notmatch '^[A-Za-z]:\\') {
-    throw 'Use an absolute path on a local Windows drive, for example D:\StremioMedia.'
+    throw 'Use an absolute path on a local Windows drive, for example D:\Media or C:\StremioMedia.'
 }
 if ($mediaFullPath.TrimEnd('\').Length -lt 4) {
     throw 'Choose a dedicated media folder, not the root of a drive.'
@@ -39,15 +40,28 @@ foreach ($folder in $folders) {
     New-Item -ItemType Directory -Force -Path $folder | Out-Null
 }
 
-$mediaDockerPath = $mediaFullPath.TrimEnd('\').Replace('\', '/')
+if ($Wsl) {
+    $drive = $mediaFullPath.Substring(0, 1).ToLowerInvariant()
+    $rest = $mediaFullPath.Substring(2).TrimEnd('\').Replace('\', '/')
+    $mediaDockerPath = "/mnt/$drive$rest"
+} else {
+    $mediaDockerPath = $mediaFullPath.TrimEnd('\').Replace('\', '/')
+}
+
 $lines = @(
+    "# Media folder path for Docker (${mediaFullPath})",
     "MEDIA_ROOT=$mediaDockerPath",
+    "",
+    "# Generated secrets and admin credentials",
     "NUVI_ADMIN_PASSWORD=$(New-RandomHex)",
     "NUVI_SESSION_SECRET=$(New-RandomHex)",
-    "NUVI_STREAM_SECRET=$(New-RandomHex)"
+    "NUVI_STREAM_SECRET=$(New-RandomHex)",
+    "",
+    "# (Optional) Configured AIOStreams addon URL without trailing /manifest.json",
+    "# AIOSTREAMS_BASE_URL="
 )
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 [System.IO.File]::WriteAllLines($envFile, $lines, $utf8NoBom)
 Write-Host "Created media folders under $mediaFullPath"
-Write-Host "Created $envFile with independent random secrets. Keep this file private."
+Write-Host "Created $envFile with MEDIA_ROOT=$mediaDockerPath and random secrets."
 Write-Host 'No software was started, no provider was contacted, and no downloads were queued.'

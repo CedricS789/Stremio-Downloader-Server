@@ -1,10 +1,53 @@
 [CmdletBinding()]
-param()
+param(
+    [string]$PythonPath = ''
+)
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
-$pythonWindowless = 'C:\Python312\pythonw.exe'
+
+$pythonWindowless = $PythonPath
+if (-not $pythonWindowless) {
+    # Check PATH for pythonw.exe
+    $pywCmd = Get-Command pythonw.exe -ErrorAction SilentlyContinue
+    if ($pywCmd) {
+        $pythonWindowless = $pywCmd.Source
+    } else {
+        # Check if python.exe is in PATH and pythonw is in the same folder
+        $pyCmd = Get-Command python.exe -ErrorAction SilentlyContinue
+        if ($pyCmd) {
+            $candidate = Join-Path (Split-Path $pyCmd.Source) 'pythonw.exe'
+            if (Test-Path -LiteralPath $candidate) { $pythonWindowless = $candidate }
+        }
+    }
+    # Check common Python installation paths
+    if (-not $pythonWindowless) {
+        $candidates = @(
+            'C:\Python312\pythonw.exe',
+            'C:\Python311\pythonw.exe',
+            'C:\Python313\pythonw.exe',
+            "$env:LOCALAPPDATA\Programs\Python\Python312\pythonw.exe",
+            "$env:LOCALAPPDATA\Programs\Python\Python311\pythonw.exe",
+            "$env:LOCALAPPDATA\Programs\Python\Python313\pythonw.exe"
+        )
+        foreach ($c in $candidates) {
+            if (Test-Path -LiteralPath $c) {
+                $pythonWindowless = $c
+                break
+            }
+        }
+    }
+}
+
+if (-not $pythonWindowless -or -not (Test-Path -LiteralPath $pythonWindowless)) {
+    throw "Python runtime (pythonw.exe) was not found. Install Python or pass its path: .\Install-Lifecycle.ps1 -PythonPath 'C:\Path\To\pythonw.exe'"
+}
+
+$settingsFile = Join-Path $root 'lifecycle-settings.json'
+$exampleSettings = Join-Path $root 'lifecycle-settings.example.json'
+if (-not (Test-Path -LiteralPath $settingsFile) -and (Test-Path -LiteralPath $exampleSettings)) {
+    Copy-Item -LiteralPath $exampleSettings -Destination $settingsFile
+}
 $watcherPath = Join-Path $root 'stremio_lifecycle.py'
-if (-not (Test-Path -LiteralPath $pythonWindowless)) { throw 'The installed Python runtime was not found.' }
 if (-not (Test-Path -LiteralPath $watcherPath)) { throw 'The lifecycle watcher was not found.' }
 Remove-Item -LiteralPath (Join-Path $root 'lifecycle.disabled') -ErrorAction SilentlyContinue
 $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'

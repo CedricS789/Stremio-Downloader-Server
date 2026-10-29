@@ -1,13 +1,17 @@
-# My-Media-Dock
+# My-Media-Dock — Custom Integration & Scripts
 
-This directory preserves the custom integration used alongside Nuvi-Flow upstream commit `bb4e694070923a9ca6fec4305aa01d06a677a9b2`. It adds a customized Stremio route, download and source-selection pages, and Windows lifecycle scripts. The downloaded catalogue is named **My-Media-Dock - Downloaded**.
+This directory contains the customized Windows, WSL, and Stremio integration files used alongside Nuvi-Flow (pinned to upstream commit `bb4e694070923a9ca6fec4305aa01d06a677a9b2`). It adds a customized Stremio stream selection route, local downloads dashboard, and optional Windows lifecycle automation.
 
-The Compose file uses the pinned upstream container image and mounts `nuviflow-stremio.js` over its compiled route and `cards/` into the container. The upstream TypeScript source in the rest of this repository does not contain these changes; rebuilding it alone does not produce the custom behavior. The override is coupled to the pinned image and must be reviewed before upgrading it.
+## Key Components
 
-## Windows runtime choice
+- `compose.yaml`: Runs the pinned Nuvi-Flow container with `nuviflow-stremio.js` mounted over the compiled route and `cards/` mounted into the container. Pre-configured to bind securely to `127.0.0.1:60500:60500`.
+- `Initialize.ps1`: Optional helper script to create media directories (`media/movies`, `media/tv`) and generate a `.env` file with secure random secrets and properly formatted WSL paths.
+- `.env.example`: Template configuration file for users who prefer configuring `.env` manually with File Explorer and any text editor.
+- `lifecycle-settings.json`: Pre-configured settings file for the background lifecycle watcher.
+- `stremio_lifecycle.py`: Background watcher that starts Docker/WSL when Stremio opens and waits for ongoing downloads and library scans to drain safely before stopping the containers. Dynamically detects its working directory and converts paths to WSL format on any drive.
+- `Install-Lifecycle.ps1`: Registers the lifecycle watcher as a Windows scheduled task or startup entry. Automatically locates `pythonw.exe` from `PATH` or standard installation directories, or accepts `-PythonPath`.
+- `Remove-Lifecycle.ps1`: Removes the scheduled task and startup entry cleanly.
 
-This guide uses **Docker Engine installed directly inside an Ubuntu WSL distribution**. The original lifecycle watcher assumes the distribution is named `Ubuntu-24.04`, Docker is managed by systemd inside WSL, and the integration is located at `C:\StremioAutomation`. These are requirements of the current scripts, not a verified installation procedure for a fresh machine. The watcher also assumes `C:\Python312\pythonw.exe`. Check and adapt these assumptions before installing the lifecycle task.
+## Path Flexibility
 
-`Initialize.ps1` creates a local `.env` and media directories. The lifecycle scripts are specific to the original Windows/WSL setup and may require adaptation; this is a backup of the working customization, not a tested installer for another machine. Provider connections and the optional AIOStreams URL must be configured separately.
-
-Private configuration, credentials, databases, downloaded media and logs are intentionally excluded. Keep `.env` and personal settings out of Git.
+All scripts and services can be kept in any directory on any drive (e.g. inside the cloned repository, or in a dedicated tools folder). Downloaded media can also be stored on any local drive or partition.

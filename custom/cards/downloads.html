@@ -282,7 +282,7 @@
       <div class="logo-icon">⚡</div>
       <div>
         <h1>My-Media-Dock — Live Downloads & Storage</h1>
-        <p class="sub">Manage downloaded media files on C:\StremioMedia, filter by show, and monitor background tasks.</p>
+        <p class="sub">Manage downloaded media files, filter by show, and monitor background tasks.</p>
       </div>
     </div>
     <div class="header-actions">
@@ -295,7 +295,7 @@
     <div class="stat-card">
       <div class="stat-label">Media Storage Used</div>
       <div class="stat-val" id="stat-used">0 MB</div>
-      <div class="stat-sub" id="stat-sub-used">C:\StremioMedia</div>
+      <div class="stat-sub" id="stat-sub-used">Media Library</div>
     </div>
     <div class="stat-card">
       <div class="stat-label">Free Drive Space</div>
@@ -409,7 +409,7 @@ async function deleteAllMedia() {
     alert('No downloaded files to delete.');
     return;
   }
-  if (!confirm('DANGER: Permanently delete ALL ' + total + ' downloaded files (' + fmtGb(bytes) + ') from C:\\StremioMedia?\n\nThis action cannot be undone.')) return;
+  if (!confirm('DANGER: Permanently delete ALL ' + total + ' downloaded files (' + fmtGb(bytes) + ') from local storage?\n\nThis action cannot be undone.')) return;
   await fetch('/downloads/delete-all', { method: 'POST' });
   selectedIds.clear();
   activeFilter = 'all';
@@ -509,7 +509,7 @@ function renderStats() {
   
   const disk = stats.disk || {};
   document.getElementById('stat-free').textContent = fmtGb(disk.freeBytes) + ' Free';
-  document.getElementById('stat-sub-drive').textContent = disk.totalBytes ? 'Drive Total: ' + fmtGb(disk.totalBytes) : 'C:\\StremioMedia';
+  document.getElementById('stat-sub-drive').textContent = disk.totalBytes ? 'Drive Total: ' + fmtGb(disk.totalBytes) : 'Media Library';
   
   document.getElementById('stat-files').textContent = (stats.totalFiles || 0) + ' Files';
   document.getElementById('stat-sub-breakdown').textContent = (stats.moviesCount || 0) + ' Movies • ' + (stats.seriesCount || 0) + ' Episodes';

@@ -1,0 +1,11 @@
+{
+  "useWsl": true,
+  "wslDistro": "Ubuntu-24.04",
+  "dockerExecutable": "wsl.exe",
+  "pollSeconds": 2,
+  "drainCheckSeconds": 15,
+  "quietSeconds": 90,
+  "librarySyncSeconds": 3600,
+  "stopDockerWhenUnused": false,
+  "preventSleepWhileDraining": true
+}

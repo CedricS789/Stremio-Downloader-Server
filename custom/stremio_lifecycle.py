@@ -22,6 +22,17 @@ TEMP = ROOT / ".tmp"
 LOG = logging.getLogger("stremio-lifecycle")
 
 
+def to_wsl_path(path: Path) -> str:
+    r"""Convert a Windows Path to its WSL equivalent (e.g. C:\Dir -> /mnt/c/Dir)."""
+    p = path.resolve()
+    drive = p.drive.rstrip(":").lower()
+    if drive:
+        rest = p.as_posix().split(":", 1)[-1]
+        return f"/mnt/{drive}{rest}"
+    return p.as_posix()
+
+
+
 def load_json(path, default=None):
     try:
         return json.loads(Path(path).read_text(encoding="utf-8-sig"))
@@ -179,9 +190,10 @@ class Controller:
         self.wsl_distro = settings.get("wslDistro", "Ubuntu-24.04")
         self.docker = settings.get("dockerExecutable", "docker")
         self.wsl_holder = None
+        self.wsl_work_dir = settings.get("wslWorkDir") or to_wsl_path(ROOT)
         if self.use_wsl:
             self.compose = ["wsl.exe", "-d", self.wsl_distro, "--", "bash", "-c",
-                            "cd /mnt/c/StremioAutomation && docker compose"]
+                            f"cd '{self.wsl_work_dir}' && docker compose"]
         else:
             self.compose = [self.docker, "compose", "-f", str(ROOT / "compose.yaml")]
 
@@ -200,7 +212,7 @@ class Controller:
             return set()
         if self.use_wsl:
             result = command(["wsl.exe", "-d", self.wsl_distro, "--", "bash", "-c",
-                              "cd /mnt/c/StremioAutomation && docker compose ps --status running --services"])
+                              f"cd '{self.wsl_work_dir}' && docker compose ps --status running --services"])
             return set(result.stdout.split())
         result = command(self.compose + ["ps", "--status", "running", "--services"])
         return set(result.stdout.split())
@@ -230,7 +242,7 @@ class Controller:
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 )
             command(["wsl.exe", "-d", self.wsl_distro, "--", "bash", "-c",
-                     "cd /mnt/c/StremioAutomation && docker compose up -d --no-build --pull never"], timeout=180)
+                     f"cd '{self.wsl_work_dir}' && docker compose up -d --no-build --pull never"], timeout=180)
         else:
             command(self.compose + ["up", "-d", "--no-build", "--pull", "never"], timeout=180)
         LOG.info("Media services started")
@@ -238,7 +250,7 @@ class Controller:
     def stop(self):
         if self.use_wsl:
             command(["wsl.exe", "-d", self.wsl_distro, "--", "bash", "-c",
-                     "cd /mnt/c/StremioAutomation && docker compose stop --timeout 60"], timeout=150)
+                     f"cd '{self.wsl_work_dir}' && docker compose stop --timeout 60"], timeout=150)
             if self.wsl_holder and self.wsl_holder.poll() is None:
                 self.wsl_holder.terminate()
                 self.wsl_holder = None
@@ -381,7 +393,19 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--probe", action="store_true", help="Read-only live completion check")
     args = parser.parse_args()
-    settings = load_json(CONFIG)
+    default_settings = {
+        "useWsl": True,
+        "wslDistro": "Ubuntu-24.04",
+        "dockerExecutable": "wsl.exe",
+        "pollSeconds": 2,
+        "drainCheckSeconds": 15,
+        "quietSeconds": 90,
+        "librarySyncSeconds": 3600,
+        "stopDockerWhenUnused": False,
+        "preventSleepWhileDraining": True,
+    }
+    loaded = load_json(CONFIG)
+    settings = {**default_settings, **(loaded or {})}
     if args.probe:
         work = inspect_work()
         print(json.dumps({"stremioOpen": stremio_running(), "pending": work,
