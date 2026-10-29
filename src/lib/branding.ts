@@ -55,15 +55,15 @@ export function defaultAddonIconSvg(): string {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
   <defs>
     <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#6ee7b7"/>
-      <stop offset="1" stop-color="#2dd4bf"/>
+      <stop offset="0" stop-color="#6366f1"/>
+      <stop offset="1" stop-color="#3b82f6"/>
     </linearGradient>
   </defs>
   <rect width="512" height="512" rx="130" fill="url(#g)"/>
-  <text x="256" y="342" text-anchor="middle"
-        font-family="Arial,Helvetica,sans-serif"
+  <text x="256" y="352" text-anchor="middle"
+        font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif"
         font-size="300" font-weight="900"
-        fill="#08201a">N</text>
+        fill="#ffffff">M</text>
 </svg>`;
 }
 
