@@ -1125,8 +1125,8 @@ export function registerStremioRoutes(app, database, settings, config, requester
                 streams.push({
                     name: 'My-Media-Dock',
                     description: armed
-                        ? `⚠️ CONFIRM DELETE Movie\nClick to delete now (3m)`
-                        : `🗑 Delete Movie (${formatGb(totalBytes)})\nClick once to arm`,
+                        ? `⚠️ Confirm Delete Movie\nTap again to delete (3m)`
+                        : `🗑 Delete Movie (${formatGb(totalBytes)})\nTap to confirm delete`,
                     url: `${settings.baseUrl}/addon/${encodeURIComponent(accessToken)}/delete/movie/${encodeURIComponent(id)}`,
                     behaviorHints: { bingeGroup: `nuvi-flow:del:movie:${id}` }
                 });
@@ -1170,8 +1170,8 @@ export function registerStremioRoutes(app, database, settings, config, requester
                 streams.push({
                     name: 'My-Media-Dock',
                     description: armedEp
-                        ? `⚠️ CONFIRM DELETE S${ss}E${ee}\nClick to delete now (3m)`
-                        : `🗑 Delete S${ss}E${ee} (${formatGb(epBytes)})\nClick once to arm`,
+                        ? `⚠️ Confirm Delete S${ss}E${ee}\nTap again to delete (3m)`
+                        : `🗑 Delete S${ss}E${ee} (${formatGb(epBytes)})\nTap to confirm delete`,
                     url: `${settings.baseUrl}/addon/${encodeURIComponent(accessToken)}/delete/episode/${encodeURIComponent(id)}`,
                     behaviorHints: { bingeGroup: `nuvi-flow:del:ep:${id}` }
                 });
@@ -1241,8 +1241,8 @@ export function registerStremioRoutes(app, database, settings, config, requester
                 streams.push({
                     name: 'My-Media-Dock',
                     description: armedSeason
-                        ? `⚠️ CONFIRM DELETE S${parsedSeries.season}\nClick to delete now (3m)`
-                        : `🗑 Delete Season ${parsedSeries.season} (${formatGb(seasonLocalBytes)})\n${localSeasonRows.length} eps • Click to arm`,
+                        ? `⚠️ Confirm Delete S${parsedSeries.season}\nTap again to delete (3m)`
+                        : `🗑 Delete Season ${parsedSeries.season} (${formatGb(seasonLocalBytes)})\n${localSeasonRows.length} eps • Tap to confirm`,
                     url: `${settings.baseUrl}/addon/${encodeURIComponent(accessToken)}/delete/season/${encodeURIComponent(id)}`,
                     behaviorHints: { bingeGroup: `nuvi-flow:del:season:${id}` }
                 });

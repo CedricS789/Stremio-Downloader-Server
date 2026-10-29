@@ -455,7 +455,7 @@ async function loadSources() {
       if (mode === 'season') {
         const parts = id.split(':');
         titleEl.innerText = `${meta.name} — Season ${parts[1] || ''}`;
-        subEl.innerText = `Select the release profile to download all remaining episodes in this season`;
+        subEl.innerText = `Pick a release profile below. My-Media-Dock will download all remaining episodes in Season ${parts[1] || ''} using this source pack.`;
       } else if (mode === 'episode') {
         const parts = id.split(':');
         const s = parts[1] || '';
@@ -579,7 +579,8 @@ function renderStreams(streams) {
             ${codecBadge}
             ${langBadges}
           </div>
-          <div class="stream-filename" title="${s.filename}">${s.filename}</div>
+          ${mode === 'season' ? `<div style="font-size:11px; color:#818cf8; font-weight:700; margin-bottom:3px; display:flex; align-items:center; gap:6px;"><span>📦 Full Season Release Profile</span>${s.folderSize ? `<span style="background:rgba(99,102,241,0.2); color:#c7d2fe; padding:1px 6px; border-radius:4px; font-weight:600;">Pack: ${formatBytes(s.folderSize)}</span>` : ''}</div>` : ''}
+          <div class="stream-filename" title="${s.filename}"><span style="color:var(--text-muted); font-size:11px;">${mode === 'season' ? 'Sample file: ' : ''}</span>${s.filename}</div>
           <div class="stream-indexer">
             <span>${s.indexer || 'AIOStreams'}</span>
             ${s.group ? `<span>• Release: <strong>${s.group}</strong></span>` : ''}
