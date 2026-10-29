@@ -288,13 +288,9 @@ async function fetchBestCandidate(type, id) {
             return null;
         const data = await resp.json();
         const rawStreams = data?.streams || [];
-        let candidates = rawStreams
-            .filter(hasEnglishOrFrench)
+        const candidates = rawStreams
             .map(score1080pDownward)
             .filter(Boolean);
-        if (candidates.length === 0) {
-            candidates = rawStreams.map(score1080pDownward).filter(Boolean);
-        }
         candidates.sort((a, b) => (b.cached - a.cached) ||
             (b.resRank - a.resRank) ||
             (b.qRank - a.qRank) ||
@@ -622,11 +618,8 @@ export function registerStremioRoutes(app, database, settings, config, requester
         ]);
 
         const rawStreams = aioResp?.streams || [];
-        let matching = rawStreams.filter(s => s && s.url && hasEnglishOrFrench(s));
-        if (matching.length === 0 && rawStreams.length > 0) {
-            matching = rawStreams.filter(s => s && s.url);
-        }
-        const streams = matching.map(parseAioStream);
+        // Directly preserve exact AIOStreams streams and ordering without custom filters
+        const streams = rawStreams.filter(s => s && s.url).map(parseAioStream);
 
         return reply.header('Cache-Control', 'no-store').send({
             ok: true,
@@ -760,7 +753,7 @@ export function registerStremioRoutes(app, database, settings, config, requester
                                     if (resp.ok) {
                                         const epData = await resp.json();
                                         const validStreams = (epData?.streams || [])
-                                            .filter(s => s && s.url && hasEnglishOrFrench(s))
+                                            .filter(s => s && s.url)
                                             .map(parseAioStream);
                                         
                                         if (group) {
