@@ -1,814 +1,229 @@
 # My-Media-Dock
 
-This private project is a personal customized media integration; it is not an official Stremio project. The custom integration and its setup notes are in [custom/README.md](custom/README.md). The original upstream documentation follows for attribution and reference; upstream source remains Nuvi-Flow and is not the customized download implementation.
+A personal, unofficial Windows and Stremio integration for choosing a source from AIOStreams, downloading it to a local media library, and presenting matching local files as Stremio sources and catalogues. It is not affiliated with Stremio, AIOStreams, Real-Debrid, or TorBox.
 
----
+**Status:** this is a customized setup, not a packaged installer. Local playback and one download were previously demonstrated, but this guide and its automatic lifecycle have not been verified end to end on a clean machine. Provider compatibility depends on the URLs returned by your AIOStreams configuration. Use content you are entitled to access.
 
-# Nuvi-Flow
+The integration runs a pinned Nuvi-Flow container with a replacement compiled route and custom pages mounted over it. The upstream TypeScript code alone does not build these custom features. Keep the image pinned: upgrading it independently can break the override. The upstream project and its license remain credited in [FORK_NOTICE.md](FORK_NOTICE.md), [LICENSE](LICENSE), and [the original documentation](docs/UPSTREAM-README.md).
 
-**Nuvi-Flow** is a self-hosted personal media addon for **Nuvio and Stremio-compatible clients**.
+## What you need
 
-It scans your local movie, TV, and anime libraries, streams the original files directly, presents useful playback metadata in Nuvio, and can automatically request missing media through **Radarr** and **Sonarr** when you try to play something that is not already in your library.
+- Windows 10/11 with Stremio and [Git for Windows](https://git-scm.com/install/windows).
+- Ubuntu 24.04 running in WSL 2, with Docker Engine and the Docker Compose plugin installed **inside Ubuntu**.
+- An x86-64 PC, internet access, and enough free local disk space. The pinned image is configured for `linux/amd64`.
+- A working AIOStreams configuration that can return downloadable HTTP(S) streams. Configure your own provider accounts there. No provider account or credentials are included.
+- For optional automatic startup and shutdown: Python 3.12 with `C:\Python312\pythonw.exe`. The scripts currently assume this exact path.
 
-Nuvi-Flow is based on [Squipy411/personal-media-addon](https://github.com/Squipy411/personal-media-addon) and extends it with automatic media requests, flexible Sonarr monitoring, anime-aware Sonarr support, richer Nuvio stream metadata, symlink-friendly scanning, request tracking, and customizable branding.
+The download UI, local add-on URL, and lifecycle scripts assume Stremio runs on the same PC as the service. They do not automatically download everything you follow. CrossWatch is not required.
 
-## Features
+## 1. Install Ubuntu 24.04 on WSL 2
 
-### Personal media streaming
+In **PowerShell**, check existing distributions:
 
-- Movies and TV series from your own folders
-- Optional separate Anime library directory
-- Direct playback of original media files
-- Nuvio-friendly stream names and technical metadata
-- Resolution, source, video codec, audio codec, and channel information when available
-- HTTP byte-range support for seeking
-- External subtitle support
-- Signed media URLs
-- Mandatory private addon installation URLs
-- Optional Silo-backed HLS transcoding
-- No media-file modifications
-- Searchable movie and series catalogs
-- Recently added catalogs
-- Posters, backdrops, episode artwork, descriptions, genres, cast, and technical metadata
-- TMDB metadata when configured
-- Automatic Cinemeta fallback
-
-### Symlink-friendly libraries
-
-Nuvi-Flow supports media files exposed through symlinks, making it suitable for setups using rclone, InfiniDysk, or other virtual/remote media mounts.
-
-Symlinked media files are followed and scanned while the configured media directories can remain read-only.
-
-### Silo playback
-
-Nuvi-Flow can use a separate [Silo](https://github.com/Silo-Server/silo-server) server for authenticated original playback, remuxing, and transcoding while keeping Silo credentials and internal container addresses away from Nuvio/Stremio clients.
-
-See the [playback roadmap](docs/PLAYBACK_ROADMAP.md) for the staged reliability,
-device identity, Auto playback, proxy, and fallback work.
-
-The current integration provides:
-
-- A route-neutral Auto stream that lets Silo protocol v3 choose byte-for-byte
-  original HTTP, progressive remux, HLS remux, audio conversion, or HLS video
-  transcode
-- Source-resolution preservation, including 4K, when the declared device
-  capabilities and Silo route allow it; Auto has no machine-specific 1080p cap
-- An optional separate Direct Play entry, shown by default and hideable under
-  **Settings → Playback**. This is display-only: Auto still gives the scanned
-  source's byte-for-byte original route first priority. If Silo is unavailable,
-  Direct is always retained so the addon never returns an empty playback choice
-- Source-aware original negotiation in Auto, followed by conservative H.264,
-  AAC stereo, and SDR compatibility routes. This avoids consuming transcoder
-  resources for files the player can already handle while keeping remux and
-  transcode available when conversion is needed
-- Fixed quality rungs as administrator overrides
-- Exact-path matching between Nuvi-Flow media files and Silo files
-- Persistent, Silo-server-scoped file mappings, so a resolved file ID is reused
-  across playback requests and Nuvi-Flow restarts
-- Automatic mapping invalidation when a scan detects that the local media file
-  changed, plus periodic revalidation; missing matches are retried rather than
-  permanently cached
-- Signed Nuvi-Flow URLs for Silo manifests and segments
-- Server-side Silo authentication
-- Streaming Silo media proxy: segments are forwarded as they arrive instead of
-  being fully buffered in Nuvi-Flow
-- HLS rewriting for nested playlists, relative or absolute Silo URLs, query
-  strings, and `URI` attributes used by keys, maps, audio/subtitle renditions,
-  I-frame playlists, and low-latency hints
-- Forwarded byte-range and validator headers for reliable seeking and cache
-  revalidation, without exposing an arbitrary URL proxy
-- Concurrent playback-start coalescing
-- Short-lived reuse of active Silo sessions, preventing repeated client requests from starting overlapping FFmpeg jobs
-- Bounded playback-start admission for distinct requests: two starts run at once
-  by default and four more may wait in first-in, first-out order. Duplicate
-  requests coalesce before consuming an admission slot
-- Capacity-aware Auto failover. Retryable Silo `capacity_unavailable` and
-  `route_capacity_unavailable` decisions try the enabled secure fallback addon
-  once, then return a controlled `503` with `Retry-After` when no candidate is
-  available
-- Signed pseudonymous device identity carried from stream discovery into playback,
-  allowing fresh URLs from the same identifiable device to reuse its session
-- Persistent pseudonymous device records and capability evidence with declared,
-  observed-success, observed-failure, and user-override provenance; raw IP,
-  user-agent, and client-header values are not stored
-- Conservative capability learning from sustained successful delivery. Three
-  separate clean playbacks are required before Auto trusts a learned trait,
-  and the confidence decays with a 90-day half-life when it is not observed
-  again
-- An authenticated **Devices** view for reviewing learned evidence and setting
-  explicit Supported, Unsupported, or Auto choices for future playback
-- A dedicated playback orchestration service that owns capability lookup, policy
-  planning, session reuse, Silo start/replan validation, and playback summaries
-- Demand-aware pause/resume liveness for clients without pause events: ordinary
-  segment traffic suppresses redundant heartbeats; after traffic becomes idle,
-  authenticated HLS manifest checks preserve a bounded five-minute pause window.
-  Original/progressive streams rely on their live transport instead of polling
-- Rolling per-session media-response observations. Repeated HLS segment waits of
-  at least the configured threshold produce one structured summary at controlled
-  intervals, providing the evidence needed for bounded quality fallback without
-  log floods
-- A unique Nuvi-Flow playback ID in structured session logs and the `X-Nuvi-Flow-Playback-Id` response header
-- A password-protected **Activity** view showing current and briefly idle direct,
-  Silo, and fallback-addon streams, including the route Auto selected, source
-  and target media details, fallback progress, and a short playback trace ID.
-  Live operations cards show Silo sessions, start admission/queue pressure, and
-  AIO proxy transfers. Administrators can stop an exact Silo or AIO session from
-  the same view; direct-file responses are not mislabeled as remotely stoppable.
-  The view never returns file paths, upstream URLs, signed token IDs, internal
-  Silo session IDs, or credentials
-- A persistent **Recent server observations** timeline under Activity for route
-  selection, accepted delivery responses, degraded delivery, bounded quality
-  fallback, capacity pressure, and unavailable sources/plans. Observations are
-  deduplicated by playback and classification, retained for at most 30 days and
-  2,000 rows, and contain no paths, URLs, request headers, tokens, raw client
-  identity, or internal Silo session IDs
-- An optional private Stremio-compatible fallback addon. Auto can use it when
-  local media is missing, before a likely full video transcode, or when a
-  reliable short-lived observation indicates that the current device/network
-  pair cannot sustain the local source. Nuvi-Flow accepts only immediately playable public HTTPS file
-  URLs, keeps provider credentials and candidate URLs server-side, and proxies
-  byte ranges through an expiring session token. AIOStreams is validated by its
-  manifest and is the reference provider
-
-The fallback addon is disabled by default. Configure it under **Settings →
-Fallback** using the private installed manifest URL. When local media is
-missing, fallback playback and the existing Radarr/Sonarr request proceed
-independently, so a local copy is still prepared for next time. A 5-second timeout,
-30-second result cache, and single-flight lookup prevent a slow addon from
-stalling or duplicating requests. If no safe candidate is returned, Auto
-continues through Silo. Fixed-quality Silo selections do not use the fallback.
-The **Before video transcode** setting controls proactive lookup only. When Auto
-has already reached Silo and Silo reports temporary capacity exhaustion, an
-enabled fallback addon may still be tried once so an available external direct
-stream can avoid a failed start.
-Nuvi-Flow inspects all results in the bounded addon response, then retains the
-configured number of safe candidates (10 by default, maximum 25). Structured
-AIOStreams size, duration, bitrate, resolution, and quality metadata is used
-when available. Leading high-quality choices and smaller cross-resolution
-alternatives are both retained, avoiding a pool made entirely of very large 4K
-remuxes. If a candidate fails
-before any bytes are sent to the player, Nuvi-Flow advances within a bounded
-15-second budget and keeps the first working candidate sticky for later range
-and seek requests.
-
-Once a safe fallback candidate is selected, Nuvi-Flow retires the matching
-Silo playback session before returning the fallback stream. The same
-authenticated, idempotent cleanup runs when a Silo replan replaces a session,
-when a local session expires, and during graceful shutdown. Pending Silo starts
-are fenced as well: if one finishes after AIO has won, its newly created session
-is stopped instead of becoming an orphaned FFmpeg workload. Cleanup uses only
-the exact server-side session ID and never exposes the Silo API key.
-Stopping, expiring, or shutting down an AIO session also aborts its active
-upstream proxy reads rather than merely removing its registry entry.
-
-Nuvi-Flow requests AIOStreams' extended stream metadata using its documented
-client identity header. When AIOStreams or the upstream response supplies a file size and the local
-media runtime is known, Nuvi-Flow also performs a one-time startup probe of up
-to 512 KiB (and no more than three seconds). It compares measured upstream
-throughput with the candidate's estimated average bitrate plus 35% headroom. A
-100 GB 4K stream can therefore yield to a smaller 4K or 1080p candidate on a
-slower connection. The probe bytes are forwarded to the player rather than
-downloaded twice. Results without usable size metadata still participate in
-normal availability failover. Candidate count, startup budget, resolution
-ceiling, downgrade behavior, headroom, observation lifetime, and an optional
-cold-start Mbps ceiling are configurable in the dashboard.
-
-Nuvi-Flow deliberately does not maintain a second active-transcode limit. Silo
-already owns per-user stream/transcode admission and each stream node's live job
-capacity, including transcodes launched by other clients. Nuvi-Flow only limits
-simultaneous protocol-v3 start negotiations to prevent request bursts from
-overloading that control path. The concurrent-start limit, queued-start limit,
-and queue wait are configurable under **Settings → Playback → Playback admission**.
-If Silo returns an unusable decision with a session ID, Nuvi-Flow stops that
-session before falling back or replying to the client.
-
-Successful direct and fallback proxy transfers create a temporary effective
-delivery estimate for a pseudonymous device and hashed network context. Three
-uninterrupted samples are required before the estimate can influence a future
-Auto decision; pauses, seeks, abandoned requests, short ranges, and errors are
-ignored. The estimate expires after 45 minutes by default and never becomes a
-permanent device capability. Raw IP addresses and private addon URLs are not
-stored. If the reverse proxy does not supply a trustworthy client address,
-Nuvi-Flow does not use the observation to reject local direct playback.
-
-Auto Silo transcodes also have bounded multi-step runtime quality fallback. A
-slow startup, repeated slow segment header waits, or consecutive upstream
-failures can move a struggling 4K transcode through cheaper Silo-advertised
-rungs. Each successful step clears the previous degradation streak before
-another step can qualify, and the administrator-set attempt cap (two by default,
-maximum three) prevents restart loops. Nuvi-Flow derives an approximate source
-position from the HLS media playlist so Silo can replan near the active segment.
-This per-session signal expires with the session and never becomes permanent
-device capability evidence.
-
-The Activity observation timeline reports only what Nuvi-Flow can verify at its
-server boundary. An accepted byte range or HLS response means delivery reached
-the addon proxy; it does not prove that Nuvio decoded or displayed the media.
-Likewise, a slow response can be caused by the source, network, Silo, or the
-transcoder. These observations therefore never create automatic negative device
-capability evidence. Explicit client playback events would be required before
-decoder incompatibility could be learned safely.
-
-This foundation selects and probes the fallback before a predicted video
-conversion; it does not replace a stream after playback has already started.
-The addon protocol does not provide Nuvi-Flow with a reliable player position
-or source-swap event, so a transparent mid-playback handoff would risk restarting
-or corrupting playback. HLS candidates are also excluded until their nested
-manifests can be proxied with the same URL controls as Silo.
-
-For AIOStreams, use a dedicated fallback configuration rather than the same
-profile you browse manually. Recommended defaults are: only the debrid service
-you actually use, cached results only, P2P disabled, season packs excluded,
-exact title plus season/episode matching, and sorting by cached status,
-resolution, quality, then size. Keep individual addon timeouts below Nuvi-Flow's
-outer lookup timeout. After importing a credential-free configuration, add the
-debrid API key in AIOStreams, save it as a private installation, and paste that
-private `manifest.json` URL into Nuvi-Flow. Do not publish or commit that URL.
-
-Auto does not send a bandwidth estimate when none is known. It offers the
-scanned source container and primary codecs to the original route first, while
-progressive/HLS conversion retains conservative compatibility targets. Trusted
-learned support and explicit Supported overrides can widen those targets;
-explicit Unsupported choices can prevent an incompatible source trait from
-being offered and can cap 4K Auto playback at 1080p. Fixed-quality selections
-remain binding administrator requests.
-
-Streaming removes Nuvi-Flow's previous segment-sized startup delay and memory
-buffer. Silo protocol v3 does not currently provide encoder FPS or GPU
-utilization, so runtime replans use only response evidence visible to Nuvi-Flow
-and stop at the configured 1–3 attempt limit.
-
-New installations default to Auto. An existing saved fixed quality remains an
-intentional override after upgrading; select **Auto** under **Settings → Playback**
-to use the new policy.
-
-Device identity prefers an explicit Nuvio/Stremio device header. When none is
-available, Nuvi-Flow hashes coarse client hints and network context together with
-the private addon installation scope. It does not store those raw inputs or use
-invasive browser fingerprinting. Identical clients behind the same proxy may be
-indistinguishable until the client supplies a device identifier.
-
-Capability evidence is keyed only by that pseudonymous device ID. Generic client
-profiles never become support claims. Nuvi-Flow records only low-risk positive
-evidence after sustained delivery: non-baseline video codecs, containers, 4K,
-and unambiguous HDR10. It deliberately does not infer audio passthrough,
-Dolby Vision, or HDR10+ from a transfer because alternate tracks and base-layer
-fallbacks make those results ambiguous. Network, Silo, encoder, pause, seek,
-and abandoned-transfer failures do not automatically blacklist a device.
-
-Three distinct successful playbacks are required before learned evidence changes
-Auto, and observed confidence decays with a 90-day half-life. Administrators can
-set Supported or Unsupported choices under **Devices**; those overrides are
-authoritative until returned to **Auto**, at which point any retained observation
-history becomes effective again. Changes affect future Auto planning and do not
-interrupt a stream already in progress. Capability changes are included in the
-session key, so a session planned under an older effective capability snapshot
-cannot be incorrectly reused.
-
-HDR overrides are sent to Silo as format-specific protocol-v3 evidence. HDR10,
-HDR10+, HLG, and Dolby Vision profiles are kept distinct instead of being
-collapsed into a generic HDR flag. The broad Dolby Vision control represents
-common profiles 5, 7, and 8; profile-specific Unsupported choices can narrow it.
-Audio passthrough is intentionally not inferred or enabled by a simple override:
-Silo requires exact sink layout evidence before it will honor bitstream output.
-
-For exact-path matching to work, the same media file must have the same container path in Nuvi-Flow and Silo. For example, mount the library as `/media/movies` in both containers rather than `/media/movies` in one and `/movies` in the other.
-
-### Jellyfin and Plex playback servers
-
-Nuvi-Flow is expanding the proven Silo orchestration model to optional Jellyfin
-and Plex Media Server backends. The Jellyfin control plane and playback path are
-complete; Plex currently has authenticated discovery and exact media mapping.
-Both are configured under **Settings → Servers** with server-side-only
-credentials and on-demand System Health checks.
-
-Mapping uses the authenticated server identity plus exact normalized file paths.
-Jellyfin mappings retain the item and media-source IDs; Plex mappings retain the
-rating key, part ID, and origin-relative part key. First-result and title-only
-matches are rejected, including duplicate exact paths. If container mounts
-differ, add one `local => provider` prefix rule per line and use **Refresh exact
-mappings**; readiness is shown only as aggregate counts so paths and provider
-IDs never enter diagnostics.
-
-When Jellyfin is enabled with a playback user, each local stream gets a
-**Jellyfin Auto** entry. Jellyfin negotiation proceeds only when that file has
-an exact mapping. Nuvi-Flow sends a bounded profile derived from the
-pseudonymous device capability snapshot to Jellyfin `PlaybackInfo` and accepts
-only same-origin decisions for the exact mapped item/media source. The
-order remains Direct Play, remux/Direct Stream, audio-only conversion, then
-video transcoding, retaining 4K when the source remains viable. Nuvi-Flow asks
-Jellyfin to run any conversion rather than introducing another FFmpeg pipeline.
-
-Direct/progressive and HLS responses are proxied through expiring opaque
-Nuvi-Flow URLs. Range and validator behavior is preserved, nested HLS resources
-are re-signed, and the Jellyfin API key never enters a player URL. Sessions are
-single-flight and reusable for the same device/capability/mapping context, are
-visible and stoppable in **Activity**, and are retired on expiry or shutdown.
-If exact mapping or negotiation is unavailable, the Jellyfin entry falls back
-to the authorized local direct file.
-
-Plex playback/proxying is the next milestone, followed by unified automatic
-provider selection. Every provider must preserve the same direct-first order.
-
-Plex support is designed to require no Plex Pass. The compatibility baseline is
-Direct Play, Direct Stream/remux, and Plex's free software transcoding. Hardware
-transcoding and premium tone mapping are not required or assumed. See the
-[playback roadmap](docs/PLAYBACK_ROADMAP.md) for the acceptance criteria and
-implementation order.
-
-### Automatic Radarr and Sonarr requests
-
-When enabled, opening missing media in Nuvio can automatically send a request directly to Radarr or Sonarr.
-
-No Seerr or Jellyseerr intermediary is required.
-
-#### Movies
-
-Missing movies are sent to Radarr using a configurable:
-
-- Radarr URL
-- API key
-- Root folder
-- Quality profile
-
-Nuvi-Flow can add the movie and trigger a Radarr search automatically.
-
-#### TV episodes
-
-Missing TV episodes are sent directly to Sonarr.
-
-Nuvi-Flow:
-
-- Supports IMDb identifiers
-- Supports TVDB identifiers
-- Lets Sonarr resolve its own TVDB metadata
-- Searches only the episode you attempted to play
-- Can monitor only the requested episode or the entire series
-- Can enable whole-series monitoring for series already present in Sonarr
-- Can automatically monitor future seasons when whole-series monitoring is enabled
-- Does not trigger an automatic search of the entire backlog
-- Does not move or re-profile existing Sonarr series
-
-If a new series must be added first, Nuvi-Flow waits briefly for Sonarr to populate its episode records before searching for the requested episode.
-
-With **Requested episode only**, Nuvi-Flow monitors only the episode you requested.
-
-With **Monitor entire series**, regular seasons and episodes are monitored in Sonarr, including future additions, while Nuvi-Flow still triggers an immediate search only for the episode requested in Nuvio. Specials keep their existing Sonarr monitoring state.
-
-### Anime support
-
-Anime can be configured independently from normal TV.
-
-Nuvi-Flow supports:
-
-- Optional separate Anime library directory
-- Optional separate Sonarr Anime root folder
-- Optional separate Sonarr Anime quality profile
-- Automatic detection using Sonarr's `seriesType`
-- Normal TV profile fallback when no Anime-specific profile is selected
-
-Existing Sonarr series are never moved or re-profiled.
-
-### Request queue
-
-The admin dashboard includes a request queue for missing media sent to Radarr and Sonarr.
-
-Statuses include:
-
-- Pending
-- Requested
-- Searching
-- Failed
-- Added
-
-**Added** means Nuvi-Flow has actually detected and matched the downloaded/imported media in the local library. It does not simply mean Radarr or Sonarr accepted the request.
-
-Once media appears in the library:
-
-1. The request changes to **Added**
-2. It remains visible for about five minutes
-3. The completed request is removed from the queue
-4. Nuvi-Flow runs a follow-up changed-library scan
-
-Failed requests remain visible and can be retried manually.
-
-### Custom branding
-
-Nuvi-Flow can be branded directly from the admin dashboard.
-
-You can:
-
-- Change the visible addon name
-- Upload a custom PNG, JPG, or WEBP icon
-- Replace the icon at any time
-- Remove the custom icon to restore the default Nuvi-Flow icon
-
-The same icon is used by:
-
-- Nuvio/Stremio through the addon manifest
-- The Nuvi-Flow admin interface
-
-Uploaded branding is stored in the persistent `/app/data` volume.
-
-## Admin dashboard
-
-The password-protected dashboard provides:
-
-- Task-oriented sidebar groups for monitoring, media management, playback, and
-  system configuration
-- Library overview
-- Live playback activity across direct, Silo original/remux/transcode, and AIO
-  fallback routes, with admission/queue health and exact Silo/AIO stop controls
-- Pseudonymous playback devices, learned compatibility evidence, and explicit
-  per-device Auto/Supported/Unsupported controls
-- Recently added media
-- Files needing review
-- Manual metadata matching
-- Live scan phase, progress, counters, elapsed time, and durable terminal history
-- Changed-library scans and full rescans with safe cancellation
-- Verified live database backups with automatic retention, manual creation, and
-  authenticated downloads
-- Automatic request history
-- Failed-request retries
-- Radarr connection testing
-- Sonarr connection testing
-- Silo connection and profile testing
-- Silo transcode-quality selection
-- Private fallback-addon connection testing and timeout control
-- Route-neutral Auto playback across original, progressive-remux, HLS-remux,
-  audio-conversion, and video-transcode delivery
-- Optional separate Direct Play stream visibility
-- Root-folder selection
-- Quality-profile selection
-- Requested-episode or whole-series Sonarr monitoring
-- Anime-specific Sonarr settings
-- Runtime configuration
-- Custom addon name
-- Custom addon icon
-- Secure addon URL display and one-click regeneration
-- Running version and Git commit identity in the lower-left server status card
-- On-demand System Health checks for SQLite integrity, backup recency,
-  configured media roots, scanner state, Silo, the optional fallback addon, and
-  playback admission state
-- A copyable diagnostic bundle containing only sanitized operational data and
-  one-hour playback outcome aggregates
-- General, Requests, Playback, Fallback, and Security settings workspaces with
-  one atomic save action
-
-Settings stay in one form even though they are separated visually. Switching
-workspaces does not discard edits, and submitting **Save all settings** validates
-and saves every workspace together. If a required value is missing in another
-workspace, Nuvi-Flow opens that workspace automatically so the problem is
-visible.
-
-System Health runs only when the page is opened or **Run checks** is selected.
-External checks are single-flight and cached for one minute, so diagnostics do
-not create background integration polling. The lightweight public `/health`
-container endpoint remains independent of optional integrations.
-
-Scan Logs updates every two seconds only while that workspace is open or a scan
-is active. Cancelling a scan stops new work, aborts an active `ffprobe` process,
-keeps file updates that already completed, and deliberately skips removal
-reconciliation so a partial scan cannot delete catalog entries. Graceful
-shutdown uses the same path and waits for scanner work to settle before SQLite
-closes. If a process exits unexpectedly, its unfinished history row is marked
-**interrupted** on the next start instead of remaining **running** forever.
-
-Backups uses SQLite's live backup API, runs an integrity check before making a
-snapshot available, and retains only the configured number of Nuvi-Flow-managed
-files. Automatic backups default to every 24 hours with seven recovery points;
-manual creation and authenticated download are available from **System →
-Backups**. Backup responses use opaque IDs and never expose server paths.
-
-Saved Radarr, Sonarr, and Silo API keys and the private fallback-addon manifest
-URL are never returned to the browser. The diagnostic bundle also excludes
-filesystem paths, upstream URLs, signed tokens, internal session IDs, and raw
-device identities.
-
-## Docker
-
-### Build locally
-
-```bash
-git clone https://github.com/riverflow-media/nuvi-flow.git
-cd nuvi-flow
-cp .env.example .env
+```powershell
+wsl --list --verbose
 ```
 
-Edit `.env`, then start Nuvi-Flow:
+If `Ubuntu-24.04` is present and its version is 2, use it. Otherwise, run the following in **PowerShell as administrator** and restart if requested:
+
+```powershell
+wsl --install -d Ubuntu-24.04
+```
+
+Launch Ubuntu, create its Linux user and password, then verify `wsl --list --verbose` again. If the distribution name differs, the lifecycle script must be adapted before use. See [Microsoft's WSL installation guide](https://learn.microsoft.com/windows/wsl/install).
+
+## 2. Install and verify Docker Engine inside Ubuntu
+
+From PowerShell:
+
+```powershell
+wsl -d Ubuntu-24.04
+```
+
+The following commands are entered at the **Ubuntu** prompt:
 
 ```bash
-docker compose up -d --build
+ps -p 1 -o comm=
+docker --version
+docker compose version
+systemctl is-active docker
+```
+
+PID 1 should be `systemd`. If Docker and Compose are already installed and Docker is active, skip to step 3. If systemd is not enabled, follow [Microsoft's systemd instructions](https://learn.microsoft.com/windows/wsl/systemd/). Restarting WSL affects all running WSL workloads; do not do it during active work.
+
+For a fresh Ubuntu installation without Docker, follow [Docker's official Ubuntu Engine installation instructions](https://docs.docker.com/engine/install/ubuntu/) using the **apt repository** method. Check that no conflicting packages or existing workloads will be disrupted before making changes. Then start Docker:
+
+```bash
+sudo systemctl enable --now docker
+sudo usermod -aG docker "$USER"
+```
+
+Exit Ubuntu, open a new Ubuntu session, and confirm that these run **without sudo**:
+
+```bash
+docker info
+docker compose version
+```
+
+The lifecycle watcher needs noninteractive access. Docker group membership provides root-level control over the Linux environment; understand that trade-off before enabling it. See [Docker's post-installation guide](https://docs.docker.com/engine/install/linux-postinstall/).
+
+## 3. Download the project and copy the integration
+
+Open a new **PowerShell** window. For a public repository, clone without signing in:
+
+```powershell
+cd "$HOME\Documents"
+git clone https://github.com/CedricS789/My-Media-Dock.git
+Copy-Item "$HOME\Documents\My-Media-Dock\custom" C:\StremioAutomation -Recurse
+```
+
+If a destination already exists, inspect it first; do not overwrite an existing installation. The watcher currently requires exactly `C:\StremioAutomation`. The directory should contain `compose.yaml`, `Initialize.ps1`, `nuviflow-stremio.js`, `stremio_lifecycle.py`, and `cards`.
+
+## 4. Create configuration and media directories
+
+In PowerShell:
+
+```powershell
+cd C:\StremioAutomation
+.\Initialize.ps1 -MediaRoot "C:\StremioMedia"
+```
+
+If execution policy blocks the script, run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\Initialize.ps1 -MediaRoot "C:\StremioMedia"
+```
+
+This creates local movie and TV folders and a `.env` containing generated secrets. It refuses to overwrite an existing `.env`. Back up that file securely and never commit it or share its contents.
+
+The initializer writes a Windows path; Docker runs inside WSL. Open `C:\StremioAutomation\.env` with Notepad and change **only** the media path to:
+
+```text
+MEDIA_ROOT=/mnt/c/StremioMedia
+```
+
+If you chose another drive or directory, use its correct WSL path instead, for example `D:\Media` becomes `/mnt/d/Media`.
+
+## 5. Configure AIOStreams
+
+Configure your own AIOStreams instance and provider accounts separately. In `.env`, add the private configured addon URL **without the final `/manifest.json`**:
+
+```text
+AIOSTREAMS_BASE_URL=https://example.invalid/your-configured-addon
+```
+
+Replace the example with the real base URL, without exposing it in screenshots, issue reports, or Git. The service requests `/stream/<type>/<id>.json` below this base. A working HTTP(S) URL must be reachable from **inside the container**; `localhost` there points to the container, not Windows. An instance on the PC needs a container-reachable address. This project does not set up AIOStreams or guarantee every debrid result is downloadable.
+
+## 6. Bind the service locally
+
+Open `C:\StremioAutomation\compose.yaml`. Under `ports`, replace:
+
+```yaml
+      - "60500:60500"
+```
+
+with:
+
+```yaml
+      - "127.0.0.1:60500:60500"
+```
+
+Save it. The custom download endpoints are intended for a trusted local environment. Do not expose them or the private addon URL to the public internet. The repository is public-ready; this does not make a running instance safe to publish.
+
+## 7. Start the service
+
+From PowerShell:
+
+```powershell
+wsl -d Ubuntu-24.04
+```
+
+In Ubuntu:
+
+```bash
+sudo systemctl start docker
+cd /mnt/c/StremioAutomation
+docker volume create stremio-automation_nuvi_config
+docker compose pull
+docker compose up -d
 docker compose ps
 ```
 
-The container is ready when its status becomes `healthy` and the `/health` endpoint returns `{"status":"ok"}`.
+The Nuvi-Flow container should report running. Check [http://localhost:60500/health](http://localhost:60500/health), then open [http://localhost:60500/admin](http://localhost:60500/admin).
 
-Default endpoints:
+The initial username is `admin`; its generated password is the value of `NUVI_ADMIN_PASSWORD` in `C:\StremioAutomation\.env`. The persistent volume contains the service's library and settings. Do not remove it during an ordinary restart.
 
-- Admin: `http://localhost:60500/admin`
-- Health: `http://localhost:60500/health`
-- Secure manifest: copy it from **Admin → Settings**
-- Addon icon: `http://localhost:60500/addon-icon`
+If startup fails, run `docker compose logs --tail=100 nuviflow` in Ubuntu. Logs can contain sensitive URLs; redact them before sharing.
 
-### Persistent storage
+## 8. Install the add-on
 
-`/app/data` contains:
+1. In the admin dashboard, open **Settings**.
+2. Copy the **Nuvio addon manifest URL**. This is the upstream label for the Stremio-compatible manifest.
+3. In Stremio, open **Add-ons**, paste the URL into the add-on search field, and install **My-Media-Dock**.
+4. Keep the URL private: it contains an access token.
 
-- SQLite database
-- Verified live database backups in `/app/data/backups`
-- Verified pre-migration SQLite backups created before upgrading an existing
-  database to a newer schema
-- A bounded, sanitized history of recent server-side playback observations
-- Saved settings
-- Uploaded addon icon
+The default URL uses `localhost`, so it works on the computer running the service. Another device's `localhost` refers to itself; remote playback requires separate networking and security design.
 
-Do not delete this volume during normal upgrades if you want to preserve your configuration.
+## 9. Test local downloads and playback
 
-Schema upgrades are additive and transactional. Before applying a pending
-migration to an existing database, Nuvi-Flow creates and integrity-checks a
-`media.db.backup-before-migration-*` file in the same data directory.
+1. Select a movie or episode in Stremio and look for the My-Media-Dock download option in its sources.
+2. Choose a small downloadable HTTP(S) source. Use [the downloads page](http://localhost:60500/downloads) to check progress.
+3. Wait for the download and library scan to complete.
+4. Reopen the title in Stremio and check its local source and the **My-Media-Dock - Downloaded** catalogue.
 
-### Restore a database backup
+If the source page cannot load, verify the AIOStreams base URL, provider availability, container network reachability, and logs. A source that plays in an add-on is not necessarily a directly downloadable URL. Fresh-install compatibility, individual providers, catalogue matching, and restart recovery are not yet comprehensively tested.
 
-Restores are deliberately offline so a live WAL database cannot be replaced
-under active requests:
+## 10. Optional: start and stop with Stremio
 
-1. Download the chosen recovery point from **System → Backups**.
-2. Stop the Nuvi-Flow container or desktop process.
-3. Preserve the current `media.db`, `media.db-wal`, and `media.db-shm` files.
-4. Replace `media.db` with the downloaded SQLite file, then remove the stale
-   `media.db-wal` and `media.db-shm` companions.
-5. Start Nuvi-Flow and run **System → System health** to verify database
-   integrity and integration readiness.
+Complete the manual test first. The included Windows watcher is intended to start the service when Stremio opens and wait for active downloads and library scans after Stremio closes. This behavior is **not yet validated on a clean installation**, and shutdown, sleep, power loss, or killing WSL can interrupt work. Test with a small download before relying on it.
 
-The backup contains settings and may contain integration credentials. Store and
-transfer downloaded copies as securely as the persistent data volume itself.
+The installer assumes `Ubuntu-24.04`, `C:\StremioAutomation`, and `C:\Python312\pythonw.exe`. It registers a Windows scheduled task or startup entry, and it removes an existing Docker Desktop sign-in entry after backing it up. Read `Install-Lifecycle.ps1` before running it if other Docker workloads matter.
 
-### Media mounts
-
-The container only needs read access to your media.
-
-Typical paths:
-
-```text
-/mnt/media/movies
-/mnt/media/tv
-/mnt/media/anime
-```
-
-Anime is optional.
-
-## GitHub Container Registry
-
-Nuvi-Flow images will be published as:
-
-```text
-ghcr.io/riverflow-media/nuvi-flow
-```
-
-Example:
-
-```bash
-docker pull ghcr.io/riverflow-media/nuvi-flow:latest
-```
-
-Each successful default-branch build publishes both `latest` and an immutable `sha-<commit>` tag. The image is published only after the automated test suite, typecheck, production build, Docker build, container startup, and Docker health check pass.
-
-## Add Nuvi-Flow to Nuvio
-
-Make sure the health endpoint returns `"status":"ok"`.
-
-Open **Admin → Settings** and copy the generated **Nuvio addon manifest URL**. It has this form:
-
-```text
-https://YOUR-NUVI-FLOW-DOMAIN/addon/RANDOM-256-BIT-TOKEN/manifest.json
-```
-
-The token is created automatically on first startup and stored in the persistent database. The public `/manifest.json`, `/catalog`, `/meta`, and `/stream` routes are intentionally unavailable, so knowing the domain alone is not enough to use the addon.
-
-Keep the installation URL private. If it may have been exposed, choose **Regenerate secure URL** in the dashboard. The prior URL stops working immediately, and Nuvi-Flow must be reinstalled in Nuvio with the replacement URL.
-
-The Nuvi-Flow manifest ID is:
-
-```text
-community.nuviflow
-```
-
-If you previously installed Nuvi-Flow from `/manifest.json`, remove that installation and reinstall it using the secure URL shown in the dashboard.
-
-## Automatic request setup
-
-Open the Nuvi-Flow admin dashboard and go to:
-
-**Settings → Automatic Requests**
-
-Set **Missing media behavior** to:
-
-```text
-Automatically request missing media
-```
-
-### Radarr
-
-Configure:
-
-- Enable Radarr
-- Radarr URL
-- Radarr API key
-- Movie root folder
-- Movie quality profile
-
-Use **Test Connection** to verify access.
-
-### Sonarr
-
-Configure:
-
-- Enable Sonarr
-- Sonarr URL
-- Sonarr API key
-- TV root folder
-- TV quality profile
-- Series monitoring mode:
-  - **Requested episode only**
-  - **Monitor entire series**
-
-Whole-series monitoring does not automatically search or download the entire backlog. Nuvi-Flow still starts an immediate Sonarr search only for the episode requested in Nuvio.
-
-Optional Anime settings:
-
-- Separate Anime root folder
-- Anime root folder
-- Anime quality profile
-
-The dashboard automatically loads the real Radarr/Sonarr root-folder and quality-profile names from the saved connection.
-
-## How missing media works
-
-When Nuvio asks Nuvi-Flow for a stream:
-
-```text
-Media exists locally
-        ↓
-Return local stream
-```
-
-When it is missing:
-
-```text
-Missing stream
-        ↓
-Nuvi-Flow creates/deduplicates a request
-        ↓
-Radarr or Sonarr
-        ↓
-Download/import
-        ↓
-Nuvi-Flow detects the new file or symlink
-        ↓
-Request becomes Added
-        ↓
-Visible for about 5 minutes
-        ↓
-Completed queue entry clears
-```
-
-A successful Radarr/Sonarr API request alone does **not** mark the media as Added.
-
-## Configuration
-
-Common environment variables include:
-
-| Variable | Purpose |
-| --- | --- |
-| `PORT` | HTTP port, default `60500` |
-| `BASE_URL` | Public URL used in manifest and stream links |
-| `ADDON_NAME` | Default addon name |
-| `TMDB_API_KEY` | Optional TMDB API credential |
-| `ADMIN_USERNAME` | Initial admin username |
-| `ADMIN_PASSWORD` | Initial admin password |
-| `SESSION_SECRET` | Admin-session signing secret |
-| `STREAM_SECRET` | Media-link signing secret |
-| `MOVIES_PATH` | Movie library directory |
-| `TV_PATH` | TV library directory |
-| `ANIME_PATH` | Optional separate Anime library directory |
-| `SCAN_INTERVAL_MINUTES` | Scheduled scan frequency |
-| `MINIMUM_FILE_SIZE_MB` | Ignore files smaller than this |
-| `SCAN_CONCURRENCY` | Concurrent scan work |
-| `WATCH_MEDIA` | Watch media directories for changes |
-| `SCAN_ON_STARTUP` | Scan after startup |
-| `DATABASE_BACKUP_ENABLED` | Create scheduled live SQLite backups; default `true` |
-| `DATABASE_BACKUP_INTERVAL_HOURS` | Hours between automatic backups, 1–720; default `24` |
-| `DATABASE_BACKUP_RETENTION` | Managed recovery points retained, 1–30; default `7` |
-| `SILO_ENABLED` | Enable optional Silo playback |
-| `SILO_URL` | Internal Silo base URL, such as `http://silo:8080` |
-| `SILO_API_KEY` | Silo API key; never returned to the browser |
-| `SILO_PROFILE_ID` | Silo playback profile ID |
-| `SILO_TRANSCODE_QUALITY` | Silo quality policy; `auto` (default) preserves source resolution when viable, while a named rung is a fixed override |
-| `SILO_RUNTIME_FALLBACK_ENABLED` | Allow bounded evidence-triggered quality replans for a struggling Auto HLS transcode; default `true` |
-| `SILO_RUNTIME_FALLBACK_SLOW_SEGMENT_MS` | Segment header wait considered slow, 1,000–15,000 ms; default `2500` |
-| `SILO_RUNTIME_FALLBACK_SLOW_SEGMENT_COUNT` | Consecutive slow segments required, 2–10; default `3` |
-| `SILO_RUNTIME_FALLBACK_STARTUP_MS` | Startup time that triggers an initial lower-rung replan, 5,000–60,000 ms; default `20000` |
-| `SILO_RUNTIME_FALLBACK_MAX_ATTEMPTS` | Maximum distinct Silo-advertised quality reductions per playback, 1–3; default `2` |
-| `SILO_MAX_CONCURRENT_STARTS` | Maximum distinct Silo start negotiations running at once, 1–8; default `2` |
-| `SILO_MAX_QUEUED_STARTS` | Additional distinct Silo starts allowed to wait FIFO, 0–32; default `4` |
-| `SILO_START_QUEUE_TIMEOUT_MS` | Maximum queue wait before Auto fallback or a retryable response, 1,000–60,000 ms; default `15000` |
-| `JELLYFIN_ENABLED` | Enable Jellyfin exact-mapped Auto playback; default `false` |
-| `JELLYFIN_URL` | Internal Jellyfin base URL, such as `http://jellyfin:8096` |
-| `JELLYFIN_API_KEY` | Jellyfin API key; kept server-side and never returned to the browser |
-| `JELLYFIN_USER_ID` | Jellyfin user whose permissions and playback decisions will apply |
-| `JELLYFIN_PATH_MAPPINGS` | Optional newline-separated absolute `Nuvi-Flow path => Jellyfin path` prefix rules for exact media mapping |
-| `PLEX_ENABLED` | Enable the staged Plex Media Server integration; default `false` |
-| `PLEX_URL` | Internal Plex base URL, such as `http://plex:32400` |
-| `PLEX_TOKEN` | Plex authentication token; kept server-side and never returned to the browser |
-| `PLEX_PATH_MAPPINGS` | Optional newline-separated absolute `Nuvi-Flow path => Plex path` prefix rules for exact media mapping |
-| `SHOW_DIRECT_PLAY` | Show a separate original-file Direct entry when a playback server is available; default `true` |
-| `FALLBACK_ADDON_ENABLED` | Enable the optional pre-transcode fallback addon; default `false` |
-| `FALLBACK_ADDON_MANIFEST_URL` | Private installed manifest URL for AIOStreams or another Stremio-compatible stream addon; never returned to the browser |
-| `FALLBACK_ADDON_TIMEOUT_MS` | Manifest/stream lookup timeout from 1,000–15,000 ms; default `5000` |
-| `FALLBACK_ADDON_USE_FOR_MISSING` | Play through fallback while still queuing missing media in Radarr/Sonarr; default `true` |
-| `FALLBACK_ADDON_BEFORE_TRANSCODE` | Proactively try external direct playback before a likely Silo video transcode; capacity failover remains available when the addon is enabled; default `true` |
-| `FALLBACK_ADDON_MAX_ATTEMPTS` | Maximum safe candidates retained/contacted, 1–25; default `10` |
-| `FALLBACK_ADDON_STARTUP_BUDGET_MS` | Total candidate failover budget, 5,000–30,000 ms; default `15000` |
-| `FALLBACK_ADDON_MAX_RESOLUTION` | Candidate ceiling: `auto`, `2160p`, `1080p`, `720p`, or `480p` |
-| `FALLBACK_ADDON_ALLOW_RESOLUTION_DOWNGRADE` | Permit a lower-resolution sustainable candidate; default `true` |
-| `FALLBACK_ADDON_NETWORK_ADAPTATION` | Use qualified temporary device/network observations; default `true` |
-| `FALLBACK_ADDON_NETWORK_HEADROOM_PERCENT` | Required capacity above average bitrate; default `35` |
-| `FALLBACK_ADDON_NETWORK_MEMORY_MINUTES` | Temporary observation lifetime, 10–120 minutes; default `45` |
-| `FALLBACK_ADDON_COLD_START_MBPS` | Optional first-play ceiling in Mbps; `0` means no ceiling |
-
-Radarr, Sonarr, Silo, fallback addon, Anime root/profile selections, addon branding, and other runtime settings can be managed from the admin dashboard.
-
-## Development
-
-Requires Node.js 22 or newer.
-
-```bash
-npm ci
-npm test
-npm run typecheck
-npm run build
-npm start
-```
-
-Build a local Docker image:
-
-```bash
-docker build \
-  --build-arg VERSION=dev \
-  --build-arg REVISION="$(git rev-parse HEAD)" \
-  --build-arg SOURCE_URL=https://github.com/riverflow-media/nuvi-flow \
-  -t nuvi-flow:local \
-  .
-```
-
-## Windows
-
-The project retains the upstream Electron-based Windows desktop build.
-
-Build it on Windows with Node.js 22:
+In PowerShell, verify Python:
 
 ```powershell
-npm ci
-npm test
-npm run typecheck
-npm run make:windows
+Test-Path C:\Python312\pythonw.exe
 ```
 
-Artifacts are written beneath:
+If this returns `False`, install Python at that path or adapt the installer first. Then create settings:
 
-```text
-out/make/
+```powershell
+@'
+{
+  "useWsl": true,
+  "wslDistro": "Ubuntu-24.04",
+  "dockerExecutable": "wsl.exe",
+  "pollSeconds": 2,
+  "drainCheckSeconds": 15,
+  "quietSeconds": 90,
+  "librarySyncSeconds": 3600,
+  "stopDockerWhenUnused": false,
+  "preventSleepWhileDraining": true
+}
+'@ | Set-Content C:\StremioAutomation\lifecycle-settings.json -Encoding utf8
+cd C:\StremioAutomation
+.\Install-Lifecycle.ps1
 ```
 
-## Security
+Open Stremio and confirm startup. Begin a small download, close Stremio while it runs, and verify it completes and the library scan finishes before the container stops. Reopen Stremio and verify restart. Check `C:\StremioAutomation\logs\lifecycle.log` and `docker compose ps` in Ubuntu if needed. If the test fails, leave the service running manually and diagnose before relying on automatic shutdown.
 
-Nuvi-Flow is intended primarily for private/self-hosted use.
+## Manual operation and removal
 
-The admin dashboard requires authentication, media URLs are signed, and integration API keys are stored server-side.
+From Ubuntu:
 
-If exposing Nuvi-Flow to the internet, place it behind a properly configured reverse proxy and restrict admin access appropriately.
+```bash
+cd /mnt/c/StremioAutomation
+docker compose up -d
+docker compose ps
+docker compose stop
+```
 
-## Privacy
+Stop only after downloads finish. `wsl --shutdown` stops all WSL distributions and interrupts their work.
 
-Media remains on your server and is streamed directly to the player.
+To remove automatic lifecycle control, run `C:\StremioAutomation\Remove-Lifecycle.ps1` in PowerShell. Uninstall the add-on from Stremio separately. Removing the container, its persistent volume, settings, or media is a separate destructive action; preserve anything you want to keep.
 
-Library titles may be sent to the configured metadata provider while matching media.
+## Privacy and attribution
 
-## Fork and attribution
+Media matching can contact metadata services; AIOStreams and your configured providers receive requests necessary to retrieve sources. Your media, passwords, databases, account data, provider keys, and manifest URLs are not included in this repository.
 
-Nuvi-Flow is a modified fork of:
-
-**Personal Media Addon**
-https://github.com/Squipy411/personal-media-addon
-
-The original Personal Media Addon copyright and MIT license notice are preserved in this repository. Nuvi-Flow-specific modifications are maintained separately in this fork.
-
-Nuvi-Flow adds functionality focused on Nuvio integration, richer stream metadata, automatic Radarr/Sonarr requests, flexible Sonarr series monitoring, Anime handling, symlinked libraries, request lifecycle tracking, and customizable branding.
-
-See [FORK_NOTICE.md](FORK_NOTICE.md) for additional attribution information.
-
-## License
-
-MIT. See [LICENSE](LICENSE).
+My-Media-Dock contains a customized integration built on [riverflow-media/nuvi-flow](https://github.com/riverflow-media/nuvi-flow), itself based on [Squipy411/personal-media-addon](https://github.com/Squipy411/personal-media-addon). Their notices and MIT license are retained. Upstream files and scripts can still use the Nuvi-Flow name.
