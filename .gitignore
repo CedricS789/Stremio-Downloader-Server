@@ -10,3 +10,10 @@ data/
 .DS_Store
 desktop-settings.json
 .codex-*
+
+__pycache__/
+*.pyc
+lifecycle-settings.json
+lifecycle-status.json
+lifecycle-startup-backup.json
+.tmp/

@@ -329,6 +329,17 @@ async function fetchCinemeta(type, itemId) {
 async function downloadFileToDisk(key, url, destDir, destFilename, expectedBytes, onComplete) {
     fs.mkdirSync(destDir, { recursive: true });
     const finalPath = path.join(destDir, destFilename);
+    if (fs.existsSync(finalPath)) {
+        try {
+            const stat = fs.statSync(finalPath);
+            if (stat.isFile() && stat.size > 1024 * 1024) {
+                if (typeof onComplete === 'function') {
+                    await onComplete();
+                }
+                return;
+            }
+        } catch {}
+    }
     const partPath = `${finalPath}.part`;
     const controller = new AbortController();
     const state = {
@@ -492,6 +503,80 @@ export function registerStremioRoutes(app, database, settings, config, requester
             }
             catch { /* ignore scan overlap */ }
         }
+    };
+
+    const isEpisodeAlreadyPresent = (itemId, showTitle, season, episode) => {
+        try {
+            const existing = database.sqlite.prepare(`
+                SELECT 1 FROM media_files mf LEFT JOIN media_items mi ON mi.id=mf.media_item_id
+                WHERE mf.library_type='series' AND mf.status NOT IN ('ignored','error')
+                  AND (
+                    (mi.stremio_id=? OR ('tmdb:' || mi.tmdb_id)=? OR mi.imdb_id=?)
+                    OR mf.relative_path LIKE ?
+                    OR mf.absolute_path LIKE ?
+                  )
+                  AND mf.season=? AND mf.episode_start<=? AND mf.episode_end>=? LIMIT 1
+            `).get(
+                itemId, itemId, itemId,
+                `%${showTitle}%`,
+                `%${showTitle}%`,
+                season, episode, episode
+            );
+            if (existing) return true;
+        } catch {}
+
+        try {
+            const tvRoot = '/media/tv';
+            if (!fs.existsSync(tvRoot)) return false;
+            const normShow = showTitle.toLowerCase().replace(/[^a-z0-9]/g, '');
+            const epRegex = new RegExp(`(^|[._\\-\\s\\[\\(])s0*${season}e0*${episode}([._\\-\\s\\]\\)]|$)`, 'i');
+
+            const candidateShowDirs = [];
+            const entries = fs.readdirSync(tvRoot);
+            for (const entry of entries) {
+                const normEntry = entry.toLowerCase().replace(/[^a-z0-9]/g, '');
+                if (normEntry === normShow || normEntry.includes(normShow) || normShow.includes(normEntry)) {
+                    candidateShowDirs.push(path.join(tvRoot, entry));
+                }
+            }
+            const defaultShowDir = path.join(tvRoot, showTitle);
+            if (!candidateShowDirs.includes(defaultShowDir)) {
+                candidateShowDirs.push(defaultShowDir);
+            }
+
+            for (const showDir of candidateShowDirs) {
+                if (!fs.existsSync(showDir)) continue;
+                let subEntries = [];
+                try { subEntries = fs.readdirSync(showDir); } catch {}
+                const searchDirs = [showDir];
+                for (const sub of subEntries) {
+                    const subPath = path.join(showDir, sub);
+                    try {
+                        if (fs.statSync(subPath).isDirectory()) {
+                            searchDirs.push(subPath);
+                        }
+                    } catch {}
+                }
+
+                for (const sDir of searchDirs) {
+                    try {
+                        const files = fs.readdirSync(sDir);
+                        for (const file of files) {
+                            if (file.endsWith('.part') || file.endsWith('.tmp') || file.endsWith('.download')) continue;
+                            if (epRegex.test(file)) {
+                                const full = path.join(sDir, file);
+                                const stat = fs.statSync(full);
+                                if (stat.isFile() && stat.size > 1024 * 1024) {
+                                    return true;
+                                }
+                            }
+                        }
+                    } catch {}
+                }
+            }
+        } catch {}
+
+        return false;
     };
 
     app.get('/downloads/status', async (_request, reply) => {
@@ -723,16 +808,17 @@ export function registerStremioRoutes(app, database, settings, config, requester
                         for (let i = 0; i < epNumbers.length; i += 1) {
                             if (seasonState.cancelled || !activeDownloads.has(seasonKey)) break;
                             const epNum = epNumbers[i];
-                            const existing = database.sqlite.prepare(`
-                                SELECT 1 FROM media_files mf JOIN media_items mi ON mi.id=mf.media_item_id
-                                WHERE mi.type='series' AND (mi.stremio_id=? OR ('tmdb:' || mi.tmdb_id)=?) 
-                                  AND mf.status='matched' AND mf.season=? AND mf.episode_start<=? AND mf.episode_end>=? LIMIT 1
-                            `).get(parsed.itemId, parsed.itemId, parsed.season, epNum, epNum);
-                            if (existing) continue;
+                            if (isEpisodeAlreadyPresent(parsed.itemId, showTitle, parsed.season, epNum)) {
+                                app.log.info({ itemId: parsed.itemId, season: parsed.season, episode: epNum }, 'Season download: episode already exists, skipping');
+                                continue;
+                            }
+                            const epFullId = `${parsed.itemId}:${parsed.season}:${epNum}`;
+                            if (activeDownloads.has(`episode:${epFullId}`)) {
+                                continue;
+                            }
 
                             const ss = String(parsed.season).padStart(2, '0');
                             const ee = String(epNum).padStart(2, '0');
-                            const epFullId = `${parsed.itemId}:${parsed.season}:${epNum}`;
                             const destDir = path.join('/media/tv', showTitle, `Season ${parsed.season}`);
                             seasonState.filename = `S${ss}E${ee} (${i + 1}/${epNumbers.length})`;
 
@@ -1397,12 +1483,13 @@ export function registerStremioRoutes(app, database, settings, config, requester
                                 if (seasonState.cancelled || !activeDownloads.has(seasonKey))
                                     break;
                                 const epNum = epNumbers[i];
-                                const existing = database.sqlite.prepare(`SELECT 1 FROM media_files mf JOIN media_items mi ON mi.id=mf.media_item_id
-                                  WHERE mi.type='series' AND (mi.stremio_id=? OR ('tmdb:' || mi.tmdb_id)=?) AND mf.status='matched' AND mf.season=? AND mf.episode_start<=? AND mf.episode_end>=? LIMIT 1`)
-                                    .get(parsed.itemId, parsed.itemId, parsed.season, epNum, epNum);
-                                if (existing)
+                                if (isEpisodeAlreadyPresent(parsed.itemId, showTitle, parsed.season, epNum)) {
+                                    app.log.info({ itemId: parsed.itemId, season: parsed.season, episode: epNum }, 'Season download: episode already exists, skipping');
                                     continue;
+                                }
                                 const epFullId = `${parsed.itemId}:${parsed.season}:${epNum}`;
+                                if (activeDownloads.has(`episode:${epFullId}`))
+                                    continue;
                                 const best = await fetchBestCandidate('series', epFullId);
                                 if (!best)
                                     continue;

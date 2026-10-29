@@ -134,7 +134,7 @@ def inspect_work():
 
 
 def pending(snapshot):
-    return any(snapshot[key] for key in ("downloads", "scanning", "libraryProblems"))
+    return any(snapshot[key] for key in ("downloads", "scanning"))
 
 
 class DrainGate:
@@ -162,7 +162,7 @@ class DrainGate:
 
 
 def final_scan():
-    env = dict(line.split("=", 1) for line in (ROOT / ".env").read_text().splitlines()
+    env = dict(line.split("=", 1) for line in (ROOT / ".env").read_text(encoding="utf-8").splitlines()
                if "=" in line and not line.startswith("#"))
     api = Api()
     base = "http://127.0.0.1:60500"
