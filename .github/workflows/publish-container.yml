@@ -2,7 +2,7 @@ name: Publish container
 
 on:
   push:
-    branches: [riverflow-v1.1.1]
+    branches: [main]
     tags: ['v*']
   workflow_dispatch:
 
@@ -34,12 +34,12 @@ jobs:
             --build-arg VERSION=${{ steps.app-version.outputs.version }} \
             --build-arg REVISION=${{ github.sha }} \
             --build-arg SOURCE_URL=https://github.com/${{ github.repository }} \
-            -t nuvi-flow:deployment-test \
+            -t my-media-dock:deployment-test \
             .
       - name: Verify container health
         run: |
-          test_container="nuvi-flow-ci-${{ github.run_id }}"
-          test_volume="nuvi-flow-ci-data-${{ github.run_id }}"
+          test_container="my-media-dock-ci-${{ github.run_id }}"
+          test_volume="my-media-dock-ci-data-${{ github.run_id }}"
           cleanup() {
             docker rm -f "$test_container" >/dev/null 2>&1 || true
             docker volume rm "$test_volume" >/dev/null 2>&1 || true
@@ -56,7 +56,7 @@ jobs:
             -e STREAM_SECRET=ci-stream-secret-at-least-32-characters \
             -e SCAN_ON_STARTUP=false \
             -e WATCH_MEDIA=false \
-            nuvi-flow:deployment-test
+            my-media-dock:deployment-test
           for attempt in $(seq 1 45); do
             health="$(docker inspect --format '{{.State.Health.Status}}' "$test_container")"
             if [ "$health" = healthy ]; then
@@ -92,7 +92,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v6
         with:
-          images: ghcr.io/${{ github.repository_owner }}/nuvi-flow
+          images: ghcr.io/${{ github.repository }}
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=semver,pattern={{version}}

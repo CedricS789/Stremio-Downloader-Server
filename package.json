@@ -1,10 +1,10 @@
 {
-  "name": "nuvi-flow",
-  "version": "1.1.1",
+  "name": "my-media-dock",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "main": "desktop/main.cjs",
-  "description": "Self-hosted Stremio-compatible personal media server for Windows, Docker, CasaOS, and ZimaOS",
+  "description": "Self-hosted Stremio personal media server with AIOStreams downloading",
   "author": "Personal Media Addon contributors and Nuvi-Flow contributors",
   "license": "MIT",
   "engines": {
