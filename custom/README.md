@@ -1,6 +1,6 @@
-# Nuvi-Flow Custom
+# Cedric's Media Dock
 
-This directory preserves the custom integration used alongside Nuvi-Flow upstream commit `bb4e694070923a9ca6fec4305aa01d06a677a9b2`. It adds a customized Stremio route, download and source-selection pages, and Windows lifecycle scripts. The downloaded catalogue is named **Nuvi-Flow Custom - Downloaded**.
+This directory preserves the custom integration used alongside Nuvi-Flow upstream commit `bb4e694070923a9ca6fec4305aa01d06a677a9b2`. It adds a customized Stremio route, download and source-selection pages, and Windows lifecycle scripts. The downloaded catalogue is named **Cedric's Media Dock - Downloaded**.
 
 The Compose file uses the pinned upstream container image and mounts `nuviflow-stremio.js` over its compiled route and `cards/` into the container. The upstream TypeScript source in the rest of this repository does not contain these changes; rebuilding it alone does not produce the custom behavior. The override is coupled to the pinned image and must be reviewed before upgrading it.
 
