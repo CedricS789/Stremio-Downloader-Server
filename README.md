@@ -145,10 +145,12 @@ The container will show as `Up`. Verify by opening [http://localhost:60500/healt
 
 ### 7. Install the Addon in Stremio
 
-1. Open your web browser and go to the admin dashboard: [http://localhost:60500/admin](http://localhost:60500/admin).
-2. Log in with username **`admin`** and the password from your `.env` file (`NUVI_ADMIN_PASSWORD`).
-3. Navigate to **Settings** and copy the **Nuvio addon manifest URL** (this is Stremio-compatible, e.g. `http://localhost:60500/manifest.json?...`).
-4. In the Stremio desktop app, open **Add-ons**, paste the copied URL into the search bar, and install **My-Media-Dock**.
+1. Open your web browser and sign in to the admin dashboard: [http://localhost:60500/admin](http://localhost:60500/admin) (Username: `admin`, Password: `NUVI_ADMIN_PASSWORD` from `.env`).
+2. In the left navigation menu, click **Settings**.
+3. Under **Addon Configuration**, look for the **Nuvio addon manifest URL** field and click **Copy manifest URL** (it looks like `http://127.0.0.1:60500/addon/<token>/manifest.json`).
+4. Add it to Stremio using either method:
+   - **Method A (Search Bar):** Open the Stremio desktop app, click the **puzzle piece icon** (🧩 **Add-ons**) on the left sidebar, paste the copied manifest URL into the search bar at the top, press **Enter**, and click **Install**.
+   - **Method B (One-Click Protocol):** Paste the URL into your web browser's address bar, replace `http://` with `stremio://` (e.g. `stremio://127.0.0.1:60500/addon/<token>/manifest.json`), and press Enter. Windows will prompt to open Stremio directly with the Install dialog.
 
 ---
 
