@@ -1,4 +1,4 @@
-name: stremio-automation
+name: my-media-dock
 
 x-logging: &logging
   driver: json-file
@@ -8,8 +8,11 @@ x-logging: &logging
 
 services:
   nuviflow:
-    # Immutable image tag verified against the upstream branch on 2026-10-29.
-    image: ghcr.io/riverflow-media/nuvi-flow:sha-bb4e694
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: my-media-dock:latest
+    container_name: my-media-dock
     platform: linux/amd64
     restart: unless-stopped
     init: true
@@ -20,9 +23,9 @@ services:
       PORT: "60500"
       BASE_URL: http://127.0.0.1:60500
       ADMIN_USERNAME: admin
-      ADMIN_PASSWORD: "${NUVI_ADMIN_PASSWORD:?Run Initialize.ps1 first}"
-      SESSION_SECRET: "${NUVI_SESSION_SECRET:?Run Initialize.ps1 first}"
-      STREAM_SECRET: "${NUVI_STREAM_SECRET:?Run Initialize.ps1 first}"
+      ADMIN_PASSWORD: "${NUVI_ADMIN_PASSWORD:?Run scripts/Initialize.ps1 first}"
+      SESSION_SECRET: "${NUVI_SESSION_SECRET:?Run scripts/Initialize.ps1 first}"
+      STREAM_SECRET: "${NUVI_STREAM_SECRET:?Run scripts/Initialize.ps1 first}"
       DATABASE_PATH: /app/data/media.db
       MOVIES_PATH: /media/movies
       TV_PATH: /media/tv
@@ -34,10 +37,8 @@ services:
       AIOSTREAMS_BASE_URL: "${AIOSTREAMS_BASE_URL:-}"
     volumes:
       - nuvi_config:/app/data
-      - "${MEDIA_ROOT:?Run Initialize.ps1 first}/media/movies:/media/movies"
-      - "${MEDIA_ROOT:?Run Initialize.ps1 first}/media/tv:/media/tv"
-      - "./nuviflow-stremio.js:/app/dist/src/routes/stremio.js:ro"
-      - "./cards:/app/cards:ro"
+      - "${MEDIA_ROOT:?Run scripts/Initialize.ps1 first}/media/movies:/media/movies"
+      - "${MEDIA_ROOT:?Run scripts/Initialize.ps1 first}/media/tv:/media/tv"
     logging: *logging
 
 volumes:

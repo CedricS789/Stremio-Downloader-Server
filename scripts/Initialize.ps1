@@ -8,7 +8,8 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-$envFile = Join-Path $PSScriptRoot '.env'
+$repoRoot = Split-Path $PSScriptRoot -Parent
+$envFile = Join-Path $repoRoot '.env'
 if (Test-Path -LiteralPath $envFile) {
     throw '.env already exists. Existing secrets were preserved. Edit it yourself if you need to change the media path.'
 }

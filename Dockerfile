@@ -10,11 +10,11 @@ RUN npm run build && npm prune --omit=dev
 FROM node:22-bookworm-slim AS runtime
 ARG APP_UID=1000
 ARG APP_GID=1000
-ARG VERSION=dev
+ARG VERSION=1.0.0
 ARG REVISION=unknown
-ARG SOURCE_URL=https://github.com/riverflow-media/nuvi-flow
-LABEL org.opencontainers.image.title="Nuvi-Flow" \
-      org.opencontainers.image.description="Self-hosted Nuvio/Stremio personal media server with Radarr and Sonarr automation" \
+ARG SOURCE_URL=https://github.com/CedricS789/My-Media-Dock
+LABEL org.opencontainers.image.title="My-Media-Dock" \
+      org.opencontainers.image.description="Self-hosted Stremio personal media server with AIOStreams downloading" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.version="$VERSION" \
       org.opencontainers.image.revision="$REVISION" \
@@ -28,6 +28,7 @@ WORKDIR /app
 COPY --from=build --chown=node:node /app/package.json /app/package-lock.json ./
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/dist ./dist
+COPY --chown=node:node cards ./cards
 RUN mkdir -p /app/data && chown node:node /app/data
 USER node
 ENV NODE_ENV=production PORT=60500 DATABASE_PATH=/app/data/media.db \

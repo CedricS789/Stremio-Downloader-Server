@@ -15,9 +15,10 @@ import subprocess
 import time
 import urllib.request
 
-ROOT = Path(__file__).resolve().parent
-STATUS = ROOT / "lifecycle-status.json"
-CONFIG = ROOT / "lifecycle-settings.json"
+SCRIPT_DIR = Path(__file__).resolve().parent
+ROOT = SCRIPT_DIR.parent
+STATUS = SCRIPT_DIR / "lifecycle-status.json"
+CONFIG = SCRIPT_DIR / "lifecycle-settings.json"
 TEMP = ROOT / ".tmp"
 LOG = logging.getLogger("stremio-lifecycle")
 

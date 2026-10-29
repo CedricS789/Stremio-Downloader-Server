@@ -1,9 +1,10 @@
 [CmdletBinding()]
 param()
 $ErrorActionPreference = 'Stop'
-$root = $PSScriptRoot
+$scriptDir = $PSScriptRoot
+$root = Split-Path $scriptDir -Parent
 # Disabling the observer deliberately does not interrupt any media downloads.
-Set-Content -LiteralPath (Join-Path $root 'lifecycle.disabled') -Value 'Disabled by user'
+Set-Content -LiteralPath (Join-Path $scriptDir 'lifecycle.disabled') -Value 'Disabled by user'
 $task = Get-ScheduledTask -TaskName 'StremioAutomationWatcher' -ErrorAction SilentlyContinue
 if ($task) {
     Stop-ScheduledTask -TaskName 'StremioAutomationWatcher' -ErrorAction SilentlyContinue
@@ -11,7 +12,7 @@ if ($task) {
 }
 $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 Remove-ItemProperty -LiteralPath $runKey -Name 'StremioAutomationGuardian' -ErrorAction SilentlyContinue
-$backupPath = Join-Path $root 'lifecycle-startup-backup.json'
+$backupPath = Join-Path $scriptDir 'lifecycle-startup-backup.json'
 if (Test-Path -LiteralPath $backupPath) {
     $backup = Get-Content -LiteralPath $backupPath -Raw | ConvertFrom-Json
     if ($backup.dockerStartupCommand) {
