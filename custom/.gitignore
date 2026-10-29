@@ -1,0 +1,10 @@
+.env
+private-settings.json
+lifecycle-settings.json
+lifecycle-status.json
+lifecycle-startup-backup.json
+logs/
+__pycache__/
+*.db
+*.sqlite*
+media/

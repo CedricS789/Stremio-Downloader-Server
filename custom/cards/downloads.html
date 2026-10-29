@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nuvi-Flow Custom — Live Downloads & Storage Manager</title>
+<style>
+  :root {
+    --bg: #0b0a14;
+    --card-bg: #131122;
+    --card-border: #23203c;
+    --text: #f8fafc;
+    --text-muted: #94a3b8;
+    --accent: #6366f1;
+    --accent-glow: rgba(99, 102, 241, 0.25);
+    --emerald: #10b981;
+    --emerald-glow: rgba(16, 185, 129, 0.2);
+    --red: #ef4444;
+    --red-hover: #dc2626;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    margin: 0;
+    padding: 24px 20px;
+    line-height: 1.5;
+  }
+  .wrap { max-width: 1060px; margin: 0 auto; }
+  
+  /* Header */
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+  }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .logo-icon {
+    width: 40px; height: 40px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, #6366f1, #3b82f6);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px; box-shadow: 0 4px 14px var(--accent-glow);
+  }
+  h1 { margin: 0; font-size: 22px; font-weight: 700; color: #fff; letter-spacing: -0.02em; }
+  p.sub { margin: 2px 0 0 0; color: var(--text-muted); font-size: 13px; }
+  
+  .header-actions { display: flex; gap: 10px; align-items: center; }
+  button {
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    border: none;
+    border-radius: 8px;
+    padding: 8px 14px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  button:active { transform: scale(0.98); }
+  .btn-primary { background: #232042; color: #c7d2fe; border: 1px solid #373361; }
+  .btn-primary:hover { background: #2f2b5a; color: #fff; }
+  .btn-danger { background: rgba(239, 68, 68, 0.15); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.3); }
+  .btn-danger:hover { background: var(--red); color: #fff; border-color: var(--red); }
+  .btn-sm { padding: 5px 10px; font-size: 12px; border-radius: 6px; }
+
+  /* Stats Grid */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 14px;
+    margin-bottom: 24px;
+  }
+  .stat-card {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 12px;
+    padding: 16px 18px;
+    position: relative;
+    overflow: hidden;
+  }
+  .stat-label { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
+  .stat-val { font-size: 26px; font-weight: 700; color: #fff; margin: 4px 0 2px 0; }
+  .stat-sub { font-size: 12px; color: var(--text-muted); }
+
+  /* Active Downloads */
+  .section-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: #e2e8f0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin: 24px 0 12px 0;
+  }
+  .card {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 10px;
+    padding: 14px 18px;
+    margin-bottom: 10px;
+  }
+  .row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .bar-bg { width: 100%; height: 8px; background: #1e1b36; border-radius: 999px; overflow: hidden; margin-top: 10px; }
+  .bar-fill { height: 100%; background: linear-gradient(90deg, #6366f1, #34d399); transition: width 0.3s ease; }
+  .meta-dl { font-size: 12px; color: var(--text-muted); margin-top: 6px; }
+
+  /* Filter Controls */
+  .filter-panel {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 12px;
+    padding: 16px 18px;
+    margin-bottom: 16px;
+  }
+  .pills-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+    margin-bottom: 14px;
+  }
+  .pill {
+    background: #1b1830;
+    border: 1px solid #2e294f;
+    color: #cbd5e1;
+    padding: 6px 12px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    user-select: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .pill:hover { background: #282449; color: #fff; border-color: #4b457a; }
+  .pill.active {
+    background: #4338ca;
+    color: #fff;
+    border-color: #6366f1;
+    box-shadow: 0 2px 8px var(--accent-glow);
+  }
+  .pill .count {
+    background: rgba(0, 0, 0, 0.35);
+    padding: 1px 7px;
+    border-radius: 999px;
+    font-size: 11px;
+  }
+
+  .active-filter-banner {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: rgba(99, 102, 241, 0.12);
+    border: 1px solid rgba(99, 102, 241, 0.3);
+    border-radius: 8px;
+    padding: 8px 14px;
+    margin-bottom: 14px;
+    font-size: 13px;
+    color: #c7d2fe;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .active-filter-banner b { color: #fff; }
+
+  .search-sort-row {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+  }
+  .search-box {
+    flex: 1;
+    min-width: 200px;
+    background: #0f0d1b;
+    border: 1px solid #262340;
+    border-radius: 8px;
+    padding: 8px 14px;
+    color: #fff;
+    font-size: 13px;
+    outline: none;
+  }
+  .search-box:focus { border-color: #6366f1; box-shadow: 0 0 0 2px var(--accent-glow); }
+  select.sort-select {
+    background: #0f0d1b;
+    border: 1px solid #262340;
+    border-radius: 8px;
+    padding: 8px 12px;
+    color: #cbd5e1;
+    font-size: 13px;
+    cursor: pointer;
+    outline: none;
+  }
+
+  /* Batch Toolbar */
+  .batch-bar {
+    background: #1e1b38;
+    border: 1px solid #3b356d;
+    border-radius: 8px;
+    padding: 8px 14px;
+    margin-bottom: 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 13px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  /* File Rows */
+  .file-item {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 10px;
+    padding: 12px 16px;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    transition: background 0.15s ease;
+  }
+  .file-item:hover { background: #17152b; }
+  .file-check { cursor: pointer; width: 16px; height: 16px; accent-color: #6366f1; }
+  .file-main { flex: 1; min-width: 0; }
+  .file-title-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 3px; }
+  .file-title {
+    font-weight: 700;
+    font-size: 14px;
+    color: #f1f5f9;
+    cursor: pointer;
+  }
+  .file-title:hover { color: #a5b4fc; text-decoration: underline; }
+  .badge {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 5px;
+    letter-spacing: 0.02em;
+  }
+  .badge-ep { background: rgba(99, 102, 241, 0.2); color: #c7d2fe; border: 1px solid rgba(99, 102, 241, 0.4); }
+  .badge-movie { background: rgba(16, 185, 129, 0.2); color: #a7f3d0; border: 1px solid rgba(16, 185, 129, 0.4); }
+  .file-meta {
+    font-size: 12px;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .file-size-badge {
+    font-size: 13px;
+    font-weight: 700;
+    color: #cbd5e1;
+    background: #1b1830;
+    padding: 4px 10px;
+    border-radius: 6px;
+    border: 1px solid #2e294f;
+    white-space: nowrap;
+  }
+  .empty-state {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--text-muted);
+    font-size: 14px;
+    font-style: italic;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="header">
+    <div class="brand">
+      <div class="logo-icon">⚡</div>
+      <div>
+        <h1>Nuvi-Flow Custom — Live Downloads & Storage</h1>
+        <p class="sub">Manage downloaded media files on C:\StremioMedia, filter by show, and monitor background tasks.</p>
+      </div>
+    </div>
+    <div class="header-actions">
+      <button class="btn-primary" onclick="rescanLibrary()">🔄 Rescan Library</button>
+      <button class="btn-danger" onclick="deleteAllMedia()">🗑️ Delete All Media</button>
+    </div>
+  </div>
+
+  <div class="stats-grid">
+    <div class="stat-card">
+      <div class="stat-label">Media Storage Used</div>
+      <div class="stat-val" id="stat-used">0 MB</div>
+      <div class="stat-sub" id="stat-sub-used">C:\StremioMedia</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Free Drive Space</div>
+      <div class="stat-val" id="stat-free">0 GB Free</div>
+      <div class="stat-sub" id="stat-sub-drive">Drive capacity</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Downloaded Content</div>
+      <div class="stat-val" id="stat-files">0 Files</div>
+      <div class="stat-sub" id="stat-sub-breakdown">0 Movies • 0 Series</div>
+    </div>
+  </div>
+
+  <div id="active-wrap" style="display:none;">
+    <div class="section-title">
+      <span>Active Background Downloads</span>
+      <button class="btn-danger btn-sm" onclick="cancelAllDownloads()">Cancel All Downloads</button>
+    </div>
+    <div id="active-list"></div>
+  </div>
+
+  <div class="section-title">
+    <span>Downloaded Files on Disk</span>
+  </div>
+
+  <div class="filter-panel">
+    <div class="pills-row" id="pills-container"></div>
+    <div id="filter-banner" style="display:none;"></div>
+    <div class="search-sort-row">
+      <input type="text" id="search-input" class="search-box" placeholder="Filter by show, episode, or filename..." oninput="onSearchChange()">
+      <select id="sort-select" class="sort-select" onchange="onSortChange()">
+        <option value="size-desc">Sort by: Largest Size</option>
+        <option value="size-asc">Sort by: Smallest Size</option>
+        <option value="date-desc">Sort by: Newest Added</option>
+        <option value="title-asc">Sort by: Title A–Z</option>
+      </select>
+    </div>
+  </div>
+
+  <div id="batch-bar" class="batch-bar" style="display:none;">
+    <div style="display:flex; align-items:center; gap:10px;">
+      <input type="checkbox" id="master-check" class="file-check" onchange="toggleSelectAll()">
+      <span id="selected-summary">0 selected</span>
+    </div>
+    <div style="display:flex; gap:8px;">
+      <button class="btn-primary btn-sm" onclick="clearSelection()">Clear Selection</button>
+      <button class="btn-danger btn-sm" onclick="deleteSelected()">🗑️ Delete Selected</button>
+    </div>
+  </div>
+
+  <div id="files-list"></div>
+
+</div>
+
+<script>
+let currentData = { items: [], localFiles: [], shows: [], stats: {} };
+let selectedIds = new Set();
+let activeFilter = 'all';
+let searchQuery = '';
+let currentSort = 'size-desc';
+
+function fmtGb(b) {
+  if (!b || b <= 0) return '0 MB';
+  const gb = b / (1024 ** 3);
+  if (gb >= 10) return gb.toFixed(1) + ' GB';
+  if (gb >= 1) return gb.toFixed(2) + ' GB';
+  return Math.round(b / (1024 ** 2)) + ' MB';
+}
+
+function formatDate(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+async function rescanLibrary() {
+  await fetch('/downloads/rescan', { method: 'POST' });
+  refresh();
+}
+
+async function cancelDl(key) {
+  if (!confirm('Cancel active download: ' + key + '?')) return;
+  await fetch('/downloads/cancel?key=' + encodeURIComponent(key), { method: 'POST' });
+  refresh();
+}
+
+async function cancelAllDownloads() {
+  if (!confirm('Cancel ALL active background downloads?')) return;
+  await fetch('/downloads/cancel?all=true', { method: 'POST' });
+  refresh();
+}
+
+async function deleteFile(id, name) {
+  if (!confirm('Permanently delete ' + name + ' from disk?')) return;
+  await fetch('/downloads/delete-file?id=' + encodeURIComponent(id), { method: 'POST' });
+  selectedIds.delete(id);
+  refresh();
+}
+
+async function deleteShow(title, count, size) {
+  if (!confirm('Permanently delete all ' + count + ' files for "' + title + '" (' + fmtGb(size) + ') from disk?')) return;
+  await fetch('/downloads/delete-show?title=' + encodeURIComponent(title), { method: 'POST' });
+  if (activeFilter === 'show:' + title) activeFilter = 'all';
+  refresh();
+}
+
+async function deleteAllMedia() {
+  const total = currentData.stats ? currentData.stats.totalFiles : 0;
+  const bytes = currentData.stats ? currentData.stats.totalMediaBytes : 0;
+  if (!total || total === 0) {
+    alert('No downloaded files to delete.');
+    return;
+  }
+  if (!confirm('DANGER: Permanently delete ALL ' + total + ' downloaded files (' + fmtGb(bytes) + ') from C:\\StremioMedia?\n\nThis action cannot be undone.')) return;
+  await fetch('/downloads/delete-all', { method: 'POST' });
+  selectedIds.clear();
+  activeFilter = 'all';
+  refresh();
+}
+
+async function deleteSelected() {
+  const ids = Array.from(selectedIds);
+  if (ids.length === 0) return;
+  const selBytes = currentData.localFiles
+    .filter(function(f) { return selectedIds.has(f.id); })
+    .reduce(function(acc, f) { return acc + (Number(f.size) || 0); }, 0);
+  if (!confirm('Permanently delete ' + ids.length + ' selected files (' + fmtGb(selBytes) + ') from disk?')) return;
+  await fetch('/downloads/delete-batch?ids=' + encodeURIComponent(ids.join(',')), { method: 'POST' });
+  selectedIds.clear();
+  refresh();
+}
+
+function setFilter(filter) {
+  activeFilter = filter;
+  render();
+}
+
+function clearFilter() {
+  activeFilter = 'all';
+  searchQuery = '';
+  document.getElementById('search-input').value = '';
+  render();
+}
+
+function onSearchChange() {
+  searchQuery = document.getElementById('search-input').value.trim().toLowerCase();
+  renderFiles();
+}
+
+function onSortChange() {
+  currentSort = document.getElementById('sort-select').value;
+  renderFiles();
+}
+
+function toggleSelect(id) {
+  if (selectedIds.has(id)) selectedIds.delete(id);
+  else selectedIds.add(id);
+  renderBatchBar();
+}
+
+function toggleSelectAll() {
+  const filtered = getFilteredFiles();
+  const allSelected = filtered.length > 0 && filtered.every(function(f) { return selectedIds.has(f.id); });
+  if (allSelected) {
+    filtered.forEach(function(f) { selectedIds.delete(f.id); });
+  } else {
+    filtered.forEach(function(f) { selectedIds.add(f.id); });
+  }
+  render();
+}
+
+function clearSelection() {
+  selectedIds.clear();
+  renderBatchBar();
+  renderFiles();
+}
+
+function getFilteredFiles() {
+  let list = currentData.localFiles || [];
+  if (activeFilter.startsWith('show:')) {
+    const showTitle = activeFilter.slice(5);
+    list = list.filter(function(f) { return (f.title || f.relative_path.split('/')[0]) === showTitle; });
+  } else if (activeFilter === 'type:movie') {
+    list = list.filter(function(f) { return f.type === 'movie'; });
+  } else if (activeFilter === 'type:series') {
+    list = list.filter(function(f) { return f.type === 'series'; });
+  }
+
+  if (searchQuery) {
+    list = list.filter(function(f) {
+      const text = ((f.title || '') + ' ' + (f.relative_path || '') + ' ' + (f.quality || '')).toLowerCase();
+      return text.includes(searchQuery);
+    });
+  }
+
+  list = list.slice().sort(function(a, b) {
+    if (currentSort === 'size-desc') return (Number(b.size) || 0) - (Number(a.size) || 0);
+    if (currentSort === 'size-asc') return (Number(a.size) || 0) - (Number(b.size) || 0);
+    if (currentSort === 'date-desc') return (Number(b.added_at) || 0) - (Number(a.added_at) || 0);
+    if (currentSort === 'title-asc') return (a.title || '').localeCompare(b.title || '');
+    return 0;
+  });
+
+  return list;
+}
+
+function renderStats() {
+  const stats = currentData.stats || {};
+  document.getElementById('stat-used').textContent = fmtGb(stats.totalMediaBytes);
+  document.getElementById('stat-sub-used').textContent = 'Across ' + (stats.totalFiles || 0) + ' files in library';
+  
+  const disk = stats.disk || {};
+  document.getElementById('stat-free').textContent = fmtGb(disk.freeBytes) + ' Free';
+  document.getElementById('stat-sub-drive').textContent = disk.totalBytes ? 'Drive Total: ' + fmtGb(disk.totalBytes) : 'C:\\StremioMedia';
+  
+  document.getElementById('stat-files').textContent = (stats.totalFiles || 0) + ' Files';
+  document.getElementById('stat-sub-breakdown').textContent = (stats.moviesCount || 0) + ' Movies • ' + (stats.seriesCount || 0) + ' Episodes';
+}
+
+function renderActive() {
+  const wrap = document.getElementById('active-wrap');
+  const list = document.getElementById('active-list');
+  const items = currentData.items || [];
+  if (items.length === 0) {
+    wrap.style.display = 'none';
+    return;
+  }
+  wrap.style.display = 'block';
+  list.innerHTML = items.map(function(d) {
+    return '<div class="card">' +
+      '<div class="row">' +
+        '<div><strong>' + escapeHtml(d.filename) + '</strong></div>' +
+        '<button class="btn-danger btn-sm" onclick="cancelDl(\'' + escapeHtml(d.key) + '\')">Cancel</button>' +
+      '</div>' +
+      '<div class="bar-bg"><div class="bar-fill" style="width:' + d.percent + '%"></div></div>' +
+      '<div class="meta-dl">' + d.percent + '% &bull; ' + fmtGb(d.downloadedBytes) + ' / ' + fmtGb(d.totalBytes) + ' &bull; ' + d.speedMbps + ' MB/s</div>' +
+    '</div>';
+  }).join('');
+}
+
+function renderPills() {
+  const container = document.getElementById('pills-container');
+  const stats = currentData.stats || {};
+  const shows = currentData.shows || [];
+
+  let html = '<div class="pill ' + (activeFilter === 'all' ? 'active' : '') + '" onclick="setFilter(\'all\')">' +
+    'All <span class="count">' + (stats.totalFiles || 0) + ' • ' + fmtGb(stats.totalMediaBytes) + '</span></div>' +
+    '<div class="pill ' + (activeFilter === 'type:movie' ? 'active' : '') + '" onclick="setFilter(\'type:movie\')">' +
+    '🎬 Movies <span class="count">' + (stats.moviesCount || 0) + '</span></div>' +
+    '<div class="pill ' + (activeFilter === 'type:series' ? 'active' : '') + '" onclick="setFilter(\'type:series\')">' +
+    '📺 Series <span class="count">' + (stats.seriesCount || 0) + '</span></div>';
+
+  for (let i = 0; i < shows.length; i++) {
+    const s = shows[i];
+    const isAct = activeFilter === 'show:' + s.title;
+    const icon = s.type === 'movie' ? '🎬' : '📺';
+    html += '<div class="pill ' + (isAct ? 'active' : '') + '" onclick="setFilter(\'show:' + escapeHtml(s.title) + '\')">' +
+      icon + ' ' + escapeHtml(s.title) + ' <span class="count">' + s.fileCount + ' • ' + fmtGb(s.totalBytes) + '</span></div>';
+  }
+  container.innerHTML = html;
+
+  const banner = document.getElementById('filter-banner');
+  if (activeFilter.startsWith('show:')) {
+    const title = activeFilter.slice(5);
+    const show = shows.find(function(s) { return s.title === title; });
+    const count = show ? show.fileCount : 0;
+    const bytes = show ? show.totalBytes : 0;
+    banner.style.display = 'flex';
+    banner.innerHTML = '<div>Filtered by show: <b>' + escapeHtml(title) + '</b> &bull; ' + count + ' file' + (count === 1 ? '' : 's') + ' (' + fmtGb(bytes) + ')</div>' +
+      '<div style="display:flex; gap:8px;">' +
+        '<button class="btn-primary btn-sm" onclick="clearFilter()">Show All</button>' +
+        '<button class="btn-danger btn-sm" onclick="deleteShow(\'' + escapeHtml(title) + '\', ' + count + ', ' + bytes + ')">🗑️ Delete Entire Show</button>' +
+      '</div>';
+  } else if (activeFilter !== 'all') {
+    banner.style.display = 'flex';
+    banner.innerHTML = '<div>Filtered by: <b>' + (activeFilter === 'type:movie' ? 'Movies' : 'Series') + '</b></div>' +
+      '<button class="btn-primary btn-sm" onclick="clearFilter()">Show All</button>';
+  } else {
+    banner.style.display = 'none';
+  }
+}
+
+function renderBatchBar() {
+  const bar = document.getElementById('batch-bar');
+  const count = selectedIds.size;
+  if (count === 0) {
+    bar.style.display = 'none';
+    return;
+  }
+  bar.style.display = 'flex';
+  const selBytes = currentData.localFiles
+    .filter(function(f) { return selectedIds.has(f.id); })
+    .reduce(function(acc, f) { return acc + (Number(f.size) || 0); }, 0);
+  document.getElementById('selected-summary').textContent = count + ' file' + (count === 1 ? '' : 's') + ' selected (' + fmtGb(selBytes) + ')';
+}
+
+function renderFiles() {
+  const container = document.getElementById('files-list');
+  const filtered = getFilteredFiles();
+
+  if (filtered.length === 0) {
+    container.innerHTML = '<div class="empty-state">No downloaded files match the current filter.</div>';
+    return;
+  }
+
+  container.innerHTML = filtered.map(function(f) {
+    const isChecked = selectedIds.has(f.id);
+    const isMovie = f.type === 'movie';
+    const epBadge = isMovie
+      ? '<span class="badge badge-movie">Movie</span>'
+      : (f.season ? '<span class="badge badge-ep">S' + String(f.season).padStart(2, '0') + 'E' + String(f.episode_start).padStart(2, '0') + '</span>' : '');
+    const filename = f.relative_path ? f.relative_path.split('/').pop() : 'Unknown file';
+    const quality = f.quality ? f.quality + 'p' : '';
+    const dateStr = formatDate(f.added_at);
+
+    return '<div class="file-item">' +
+      '<input type="checkbox" class="file-check" ' + (isChecked ? 'checked' : '') + ' onchange="toggleSelect(\'' + escapeHtml(f.id) + '\')">' +
+      '<div class="file-main">' +
+        '<div class="file-title-row">' +
+          '<span class="file-title" onclick="setFilter(\'show:' + escapeHtml(f.title || '') + '\')">' + escapeHtml(f.title || f.relative_path) + '</span>' +
+          epBadge +
+        '</div>' +
+        '<div class="file-meta" title="' + escapeHtml(f.relative_path) + '">' +
+          escapeHtml(filename) + (quality ? ' &bull; ' + quality : '') + (dateStr ? ' &bull; ' + dateStr : '') +
+        '</div>' +
+      '</div>' +
+      '<div class="file-size-badge">' + fmtGb(f.size) + '</div>' +
+      '<button class="btn-danger btn-sm" onclick="deleteFile(\'' + escapeHtml(f.id) + '\', \'' + escapeHtml(filename) + '\')">🗑️ Delete</button>' +
+    '</div>';
+  }).join('');
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function render() {
+  renderStats();
+  renderActive();
+  renderPills();
+  renderBatchBar();
+  renderFiles();
+}
+
+async function refresh() {
+  try {
+    const r = await fetch('/downloads/status');
+    currentData = await r.json();
+    render();
+  } catch (e) {}
+}
+
+refresh();
+setInterval(refresh, 2000);
+</script>
+</body>
+</html>

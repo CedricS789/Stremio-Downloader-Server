@@ -1,0 +1,49 @@
+name: stremio-automation
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
+
+services:
+  nuviflow:
+    # Immutable image tag verified against the upstream branch on 2026-10-29.
+    image: ghcr.io/riverflow-media/nuvi-flow:sha-bb4e694
+    platform: linux/amd64
+    restart: unless-stopped
+    init: true
+    ports:
+      - "60500:60500"
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "60500"
+      BASE_URL: http://127.0.0.1:60500
+      ADMIN_USERNAME: admin
+      ADMIN_PASSWORD: "${NUVI_ADMIN_PASSWORD:?Run Initialize.ps1 first}"
+      SESSION_SECRET: "${NUVI_SESSION_SECRET:?Run Initialize.ps1 first}"
+      STREAM_SECRET: "${NUVI_STREAM_SECRET:?Run Initialize.ps1 first}"
+      DATABASE_PATH: /app/data/media.db
+      MOVIES_PATH: /media/movies
+      TV_PATH: /media/tv
+      SCAN_INTERVAL_MINUTES: "5"
+      WATCH_MEDIA: "true"
+      SCAN_ON_STARTUP: "true"
+      SILO_ENABLED: "false"
+      FALLBACK_ADDON_ENABLED: "false"
+      AIOSTREAMS_BASE_URL: "${AIOSTREAMS_BASE_URL:-}"
+    volumes:
+      - nuvi_config:/app/data
+      - "${MEDIA_ROOT:?Run Initialize.ps1 first}/media/movies:/media/movies"
+      - "${MEDIA_ROOT:?Run Initialize.ps1 first}/media/tv:/media/tv"
+      - "./nuviflow-stremio.js:/app/dist/src/routes/stremio.js:ro"
+      - "./cards:/app/cards:ro"
+    logging: *logging
+
+volumes:
+  crosswatch_config:
+    external: true
+    name: stremio-automation_crosswatch_config
+  nuvi_config:
+    external: true
+    name: stremio-automation_nuvi_config

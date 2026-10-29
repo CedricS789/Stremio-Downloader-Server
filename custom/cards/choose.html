@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Choose Source & Quality — Nuvi-Flow</title>
+<style>
+  :root {
+    --bg: #0b0a14;
+    --card-bg: #131122;
+    --card-hover: #18152b;
+    --card-border: #23203c;
+    --card-border-active: #4f46e5;
+    --text: #f8fafc;
+    --text-muted: #94a3b8;
+    --accent: #6366f1;
+    --accent-hover: #4f46e5;
+    --accent-glow: rgba(99, 102, 241, 0.25);
+    --emerald: #10b981;
+    --emerald-bg: rgba(16, 185, 129, 0.15);
+    --emerald-border: rgba(16, 185, 129, 0.3);
+    --amber: #f59e0b;
+    --amber-bg: rgba(245, 158, 11, 0.15);
+    --amber-border: rgba(245, 158, 11, 0.3);
+    --blue: #38bdf8;
+    --blue-bg: rgba(56, 189, 248, 0.15);
+    --blue-border: rgba(56, 189, 248, 0.3);
+    --purple: #a855f7;
+    --purple-bg: rgba(168, 85, 247, 0.15);
+    --purple-border: rgba(168, 85, 247, 0.3);
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    margin: 0;
+    padding: 0 0 60px 0;
+    line-height: 1.5;
+  }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 24px 20px; }
+
+  /* Header */
+  .top-nav {
+    background: rgba(11, 10, 20, 0.85);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--card-border);
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    padding: 14px 20px;
+  }
+  .top-nav-inner {
+    max-width: 1040px;
+    margin: 0 auto;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+  }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .logo-icon {
+    width: 36px; height: 36px;
+    border-radius: 9px;
+    background: linear-gradient(135deg, #6366f1, #3b82f6);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; box-shadow: 0 4px 14px var(--accent-glow);
+  }
+  .brand-text h1 { margin: 0; font-size: 17px; font-weight: 700; color: #fff; letter-spacing: -0.01em; }
+  .brand-text p { margin: 0; color: var(--text-muted); font-size: 12px; }
+
+  .nav-btn {
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    border: 1px solid var(--card-border);
+    background: var(--card-bg);
+    color: #c7d2fe;
+    border-radius: 8px;
+    padding: 7px 12px;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.2s;
+  }
+  .nav-btn:hover { background: #232042; color: #fff; border-color: #373361; }
+
+  /* Banner card */
+  .media-banner {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 16px;
+    padding: 20px;
+    display: flex;
+    gap: 20px;
+    align-items: center;
+    margin-bottom: 24px;
+    position: relative;
+    overflow: hidden;
+  }
+  .media-poster {
+    width: 80px;
+    height: 120px;
+    border-radius: 8px;
+    object-fit: cover;
+    background: #1c1936;
+    flex-shrink: 0;
+    box-shadow: 0 6px 16px rgba(0,0,0,0.4);
+  }
+  .media-info { flex: 1; min-width: 0; }
+  .media-badges { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+  .mode-badge {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 3px 8px;
+    border-radius: 6px;
+    background: var(--purple-bg);
+    color: var(--purple);
+    border: 1px solid var(--purple-border);
+  }
+  .lang-badge {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 6px;
+    background: rgba(255,255,255,0.06);
+    color: #e2e8f0;
+    border: 1px solid rgba(255,255,255,0.1);
+  }
+  .media-title { margin: 0 0 4px 0; font-size: 22px; font-weight: 700; color: #fff; }
+  .media-sub { margin: 0; font-size: 14px; color: var(--text-muted); }
+
+  /* Toolbar */
+  .toolbar {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    margin-bottom: 20px;
+  }
+  .search-row {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+  }
+  .search-input {
+    flex: 1;
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-size: 13px;
+    color: #fff;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .search-input:focus { border-color: var(--accent); }
+  .search-input::placeholder { color: #64748b; }
+
+  .filter-chips {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .chip {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 20px;
+    padding: 6px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.15s;
+    user-select: none;
+  }
+  .chip:hover { color: #fff; border-color: #3f3c64; }
+  .chip.active {
+    background: #27234d;
+    color: #c7d2fe;
+    border-color: var(--accent);
+    box-shadow: 0 0 12px var(--accent-glow);
+  }
+
+  /* Results info */
+  .results-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: 14px;
+    padding: 0 4px;
+  }
+
+  /* Stream list */
+  .stream-list { display: flex; flex-direction: column; gap: 10px; }
+  .stream-card {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 12px;
+    padding: 16px 18px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    transition: transform 0.15s, border-color 0.15s, background 0.15s;
+  }
+  .stream-card:hover {
+    background: var(--card-hover);
+    border-color: #3b3761;
+    transform: translateY(-1px);
+  }
+  .stream-card.is-4k { border-left: 3px solid #f59e0b; }
+  .stream-card.is-remux { border-left: 3px solid #a855f7; }
+  .stream-card.is-bluray { border-left: 3px solid #38bdf8; }
+  .stream-card.is-webdl { border-left: 3px solid #10b981; }
+
+  .stream-details { flex: 1; min-width: 0; }
+  .stream-badges {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    align-items: center;
+    margin-bottom: 6px;
+  }
+  .badge {
+    font-size: 11px;
+    font-weight: 700;
+    border-radius: 6px;
+    padding: 2px 7px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .badge-4k { background: var(--amber-bg); color: var(--amber); border: 1px solid var(--amber-border); }
+  .badge-1080p { background: var(--blue-bg); color: var(--blue); border: 1px solid var(--blue-border); }
+  .badge-720p { background: rgba(148, 163, 184, 0.15); color: #cbd5e1; border: 1px solid rgba(148, 163, 184, 0.3); }
+  .badge-remux { background: var(--purple-bg); color: var(--purple); border: 1px solid var(--purple-border); }
+  .badge-bluray { background: rgba(59, 130, 246, 0.15); color: #93c5fd; border: 1px solid rgba(59, 130, 246, 0.3); }
+  .badge-web { background: rgba(16, 185, 129, 0.15); color: #6ee7b7; border: 1px solid rgba(16, 185, 129, 0.3); }
+  .badge-cached { background: var(--emerald-bg); color: var(--emerald); border: 1px solid var(--emerald-border); }
+  .badge-size { background: #23203f; color: #fff; font-weight: 700; font-family: monospace; border: 1px solid #373361; }
+  .badge-tag { background: rgba(255,255,255,0.06); color: #94a3b8; font-weight: 500; }
+  .badge-lang { background: rgba(255,255,255,0.08); color: #f1f5f9; }
+
+  .stream-filename {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 12px;
+    color: #e2e8f0;
+    word-break: break-all;
+    margin-bottom: 4px;
+    line-height: 1.4;
+  }
+  .stream-indexer {
+    font-size: 11px;
+    color: var(--text-muted);
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .stream-actions { flex-shrink: 0; }
+  .btn-download {
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 700;
+    border: none;
+    border-radius: 9px;
+    padding: 10px 18px;
+    cursor: pointer;
+    background: linear-gradient(135deg, #6366f1, #4f46e5);
+    color: #fff;
+    box-shadow: 0 4px 12px var(--accent-glow);
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.2s;
+    white-space: nowrap;
+  }
+  .btn-download:hover {
+    background: linear-gradient(135deg, #7175f3, #6366f1);
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px rgba(99, 102, 241, 0.4);
+  }
+  .btn-download:active { transform: translateY(0); }
+  .btn-download:disabled {
+    background: #282544;
+    color: #64748b;
+    box-shadow: none;
+    cursor: not-allowed;
+  }
+
+  /* Empty / Loading state */
+  .state-box {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 16px;
+    padding: 48px 24px;
+    text-align: center;
+  }
+  .spinner {
+    width: 36px; height: 36px;
+    border: 3px solid rgba(99, 102, 241, 0.2);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin: 0 auto 16px auto;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Toast Notification */
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    background: #18152c;
+    border: 1px solid var(--accent);
+    color: #fff;
+    padding: 14px 20px;
+    border-radius: 10px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 13px;
+    font-weight: 600;
+    z-index: 100;
+    transform: translateY(100px);
+    opacity: 0;
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .toast.show { transform: translateY(0); opacity: 1; }
+</style>
+</head>
+<body>
+
+<header class="top-nav">
+  <div class="top-nav-inner">
+    <div class="brand">
+      <div class="logo-icon">⚡</div>
+      <div class="brand-text">
+        <h1>Source Selection</h1>
+        <p>Choose quality & release before downloading</p>
+      </div>
+    </div>
+    <div>
+      <a href="/downloads" class="nav-btn">📊 Live Downloads Dashboard</a>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <div id="mediaBanner" class="media-banner">
+    <img id="mediaPoster" class="media-poster" src="" alt="Poster" style="display:none;">
+    <div class="media-info">
+      <div class="media-badges">
+        <span id="modeBadge" class="mode-badge">Episode Download</span>
+        <span class="lang-badge">🇬🇧 EN & 🇫🇷 FR Sources Only</span>
+      </div>
+      <h2 id="mediaTitle" class="media-title">Loading Media Details...</h2>
+      <p id="mediaSub" class="media-sub">Querying AIOStreams indexers...</p>
+    </div>
+  </div>
+
+  <div class="toolbar">
+    <div class="search-row">
+      <input type="text" id="searchInput" class="search-input" placeholder="Search sources by release group (e.g. SiC, XEBEC, sodapop), audio (DTS, DD+), or codec..." oninput="applyFilters()">
+    </div>
+    <div class="filter-chips">
+      <span class="chip active" data-filter="all" onclick="setFilter(this, 'all')">All Sources (<span id="countAll">0</span>)</span>
+      <span class="chip" data-filter="4k" onclick="setFilter(this, '4k')">⚡ 4K UHD (<span id="count4k">0</span>)</span>
+      <span class="chip" data-filter="remux" onclick="setFilter(this, 'remux')">1080p Remux (<span id="countRemux">0</span>)</span>
+      <span class="chip" data-filter="bluray" onclick="setFilter(this, 'bluray')">1080p BluRay (<span id="countBluray">0</span>)</span>
+      <span class="chip" data-filter="webdl" onclick="setFilter(this, 'webdl')">1080p WEB-DL (<span id="countWebdl">0</span>)</span>
+      <span class="chip" data-filter="720p" onclick="setFilter(this, '720p')">720p (<span id="count720p">0</span>)</span>
+      <span class="chip" data-filter="cached" onclick="setFilter(this, 'cached')">⚡ Cached Only (<span id="countCached">0</span>)</span>
+    </div>
+  </div>
+
+  <div class="results-meta">
+    <span id="resultsInfo">Preserving AIOStreams original sorting & Debrid priority</span>
+    <span id="visibleCount">0 sources visible</span>
+  </div>
+
+  <div id="streamList" class="stream-list">
+    <div class="state-box">
+      <div class="spinner"></div>
+      <p style="margin:0; font-size:14px; color:var(--text-muted);">Fetching and filtering sources from AIOStreams...</p>
+    </div>
+  </div>
+</main>
+
+<div id="toast" class="toast">
+  <span>✓</span>
+  <span id="toastMsg">Download started</span>
+</div>
+
+<script>
+const params = new URLSearchParams(window.location.search);
+const type = params.get('type') || 'series';
+const id = params.get('id') || '';
+const mode = params.get('mode') || (type === 'movie' ? 'movie' : 'episode');
+
+let allStreams = [];
+let currentFilter = 'all';
+let searchQuery = '';
+
+function formatBytes(bytes) {
+  if (!bytes || bytes <= 0) return 'Unknown size';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let i = 0;
+  let val = bytes;
+  while (val >= 1024 && i < units.length - 1) {
+    val /= 1024;
+    i++;
+  }
+  return val.toFixed(2) + ' ' + units[i];
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  document.getElementById('toastMsg').innerText = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3500);
+}
+
+async function loadSources() {
+  try {
+    const res = await fetch(`/downloads/sources?type=${encodeURIComponent(type)}&id=${encodeURIComponent(id)}&mode=${encodeURIComponent(mode)}`);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    
+    // Update banner
+    const meta = data.meta || {};
+    const titleEl = document.getElementById('mediaTitle');
+    const subEl = document.getElementById('mediaSub');
+    const posterEl = document.getElementById('mediaPoster');
+    const modeBadge = document.getElementById('modeBadge');
+    
+    if (mode === 'season') {
+      modeBadge.innerText = '📦 Season Download';
+    } else if (mode === 'movie') {
+      modeBadge.innerText = '🎥 Movie Download';
+    } else {
+      modeBadge.innerText = '🎬 Episode Download';
+    }
+
+    if (meta.name) {
+      if (mode === 'season') {
+        const parts = id.split(':');
+        titleEl.innerText = `${meta.name} — Season ${parts[1] || ''}`;
+        subEl.innerText = `Select the release profile to download all remaining episodes in this season`;
+      } else if (mode === 'episode') {
+        const parts = id.split(':');
+        const s = parts[1] || '';
+        const e = parts[2] || '';
+        titleEl.innerText = `${meta.name} — S${s.padStart(2,'0')}E${e.padStart(2,'0')}`;
+        const epObj = (meta.videos || []).find(v => Number(v.season) === Number(s) && Number(v.episode) === Number(e));
+        subEl.innerText = epObj?.title ? epObj.title : `Episode ${e}`;
+      } else {
+        titleEl.innerText = meta.name + (meta.year ? ` (${meta.year})` : '');
+        subEl.innerText = meta.genres ? meta.genres.join(' • ') : 'Movie';
+      }
+    }
+    if (meta.poster) {
+      posterEl.src = meta.poster;
+      posterEl.style.display = 'block';
+    }
+
+    allStreams = data.streams || [];
+    computeCounts();
+    applyFilters();
+  } catch (err) {
+    document.getElementById('streamList').innerHTML = `
+      <div class="state-box">
+        <p style="color:#ef4444; font-weight:600; margin:0 0 8px 0;">Failed to load sources</p>
+        <p style="color:var(--text-muted); font-size:13px; margin:0;">${err.message || 'Network error'}. Make sure Nuvi-Flow is running and AIOStreams is reachable.</p>
+        <button class="nav-btn" style="margin-top:16px;" onclick="loadSources()">Retry</button>
+      </div>
+    `;
+  }
+}
+
+function computeCounts() {
+  document.getElementById('countAll').innerText = allStreams.length;
+  document.getElementById('count4k').innerText = allStreams.filter(s => s.resolution === '4K').length;
+  document.getElementById('countRemux').innerText = allStreams.filter(s => s.quality === 'Remux').length;
+  document.getElementById('countBluray').innerText = allStreams.filter(s => s.quality === 'BluRay').length;
+  document.getElementById('countWebdl').innerText = allStreams.filter(s => s.quality === 'WEB-DL').length;
+  document.getElementById('count720p').innerText = allStreams.filter(s => s.resolution === '720p').length;
+  document.getElementById('countCached').innerText = allStreams.filter(s => s.cached).length;
+}
+
+function setFilter(el, filter) {
+  document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+  el.classList.add('active');
+  currentFilter = filter;
+  applyFilters();
+}
+
+function applyFilters() {
+  searchQuery = document.getElementById('searchInput').value.trim().toLowerCase();
+  
+  const filtered = allStreams.filter(s => {
+    // Quality chip filter
+    if (currentFilter === '4k' && s.resolution !== '4K') return false;
+    if (currentFilter === 'remux' && s.quality !== 'Remux') return false;
+    if (currentFilter === 'bluray' && s.quality !== 'BluRay') return false;
+    if (currentFilter === 'webdl' && s.quality !== 'WEB-DL') return false;
+    if (currentFilter === '720p' && s.resolution !== '720p') return false;
+    if (currentFilter === 'cached' && !s.cached) return false;
+
+    // Search query filter
+    if (searchQuery) {
+      const haystack = `${s.filename} ${s.qualityLabel} ${s.resolution} ${s.audio} ${s.codec} ${s.indexer} ${s.group}`.toLowerCase();
+      if (!haystack.includes(searchQuery)) return false;
+    }
+    return true;
+  });
+
+  renderStreams(filtered);
+}
+
+function renderStreams(streams) {
+  const container = document.getElementById('streamList');
+  document.getElementById('visibleCount').innerText = `${streams.length} sources visible`;
+
+  if (streams.length === 0) {
+    container.innerHTML = `
+      <div class="state-box">
+        <p style="color:var(--text-muted); margin:0;">No sources match the selected filter.</p>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = streams.map((s, idx) => {
+    let cardClass = 'stream-card';
+    if (s.resolution === '4K') cardClass += ' is-4k';
+    else if (s.quality === 'Remux') cardClass += ' is-remux';
+    else if (s.quality === 'BluRay') cardClass += ' is-bluray';
+    else if (s.quality === 'WEB-DL') cardClass += ' is-webdl';
+
+    let resBadge = '';
+    if (s.resolution === '4K') resBadge = '<span class="badge badge-4k">⚡ 4K UHD</span>';
+    else if (s.resolution === '1080p') resBadge = '<span class="badge badge-1080p">1080p</span>';
+    else if (s.resolution === '720p') resBadge = '<span class="badge badge-720p">720p</span>';
+    else resBadge = `<span class="badge badge-720p">${s.resolution || 'SD'}</span>`;
+
+    let qBadge = '';
+    if (s.quality === 'Remux') qBadge = '<span class="badge badge-remux">REMUX</span>';
+    else if (s.quality === 'BluRay') qBadge = '<span class="badge badge-bluray">BluRay</span>';
+    else if (s.quality === 'WEB-DL') qBadge = '<span class="badge badge-web">WEB-DL</span>';
+    else if (s.quality) qBadge = `<span class="badge badge-tag">${s.quality}</span>`;
+
+    const cachedBadge = s.cached ? '<span class="badge badge-cached">⚡ Cached</span>' : '';
+    const sizeBadge = s.videoSize ? `<span class="badge badge-size">${formatBytes(s.videoSize)}</span>` : '';
+    const audioBadge = s.audio ? `<span class="badge badge-tag">🎵 ${s.audio}</span>` : '';
+    const codecBadge = s.codec ? `<span class="badge badge-tag">${s.codec}</span>` : '';
+    const langBadges = (s.languages || []).map(l => `<span class="badge badge-lang">${l}</span>`).join(' ');
+
+    const buttonLabel = mode === 'season' ? '⬇ Download Season' : '⬇ Download Source';
+
+    return `
+      <div class="${cardClass}">
+        <div class="stream-details">
+          <div class="stream-badges">
+            ${resBadge}
+            ${qBadge}
+            ${sizeBadge}
+            ${cachedBadge}
+            ${audioBadge}
+            ${codecBadge}
+            ${langBadges}
+          </div>
+          <div class="stream-filename" title="${s.filename}">${s.filename}</div>
+          <div class="stream-indexer">
+            <span>${s.indexer || 'AIOStreams'}</span>
+            ${s.group ? `<span>• Release: <strong>${s.group}</strong></span>` : ''}
+            ${s.folderSize && mode === 'season' ? `<span>• Season Pack: ${formatBytes(s.folderSize)}</span>` : ''}
+          </div>
+        </div>
+        <div class="stream-actions">
+          <button class="btn-download" onclick="startDownload(${idx}, this)">
+            ${buttonLabel}
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+async function startDownload(streamIndex, btnEl) {
+  const s = allStreams[streamIndex];
+  if (!s) return;
+
+  btnEl.disabled = true;
+  btnEl.innerHTML = '<span class="spinner" style="width:14px;height:14px;border-width:2px;margin:0;display:inline-block;vertical-align:middle;"></span> Starting...';
+
+  try {
+    const res = await fetch('/downloads/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type,
+        id,
+        mode,
+        url: s.url,
+        filename: s.filename,
+        size: s.videoSize,
+        qualityLabel: s.qualityLabel,
+        resolution: s.resolution,
+        quality: s.quality,
+        group: s.group,
+        bingeGroup: s.bingeGroup
+      })
+    });
+
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    showToast('Download started! Redirecting to live dashboard...');
+    setTimeout(() => {
+      window.location.href = '/downloads';
+    }, 1200);
+  } catch (err) {
+    btnEl.disabled = false;
+    btnEl.innerText = mode === 'season' ? '⬇ Download Season' : '⬇ Download Source';
+    alert('Failed to start download: ' + (err.message || 'Network error'));
+  }
+}
+
+loadSources();
+</script>
+</body>
+</html>
