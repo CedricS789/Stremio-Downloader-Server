@@ -97,8 +97,8 @@ function hasEnglishOrFrench(stream) {
     const filename = String(stream?.behaviorHints?.filename || '');
     const text = `${name} ${desc} ${filename}`;
 
-    // Small caps: \u1d07\u0274 (ᴇɴ), \u0284\u0280 (ғʀ)
-    if (text.includes('\u1d07\u0274') || text.includes('\u0284\u0280')) return true;
+    // Small caps: \u1d07\u0274 (ᴇɴ), \u0493\u0280 / \u0284\u0280 (ғʀ)
+    if (text.includes('\u1d07\u0274') || text.includes('\u0493\u0280') || text.includes('\u0284\u0280')) return true;
 
     // Flag emojis (UK, US, FR, CA)
     if (text.includes('\uD83C\uDDEC\uD83C\uDDE7') || text.includes('\uD83C\uDDFA\uD83C\uDDF8') ||
@@ -112,7 +112,13 @@ function hasEnglishOrFrench(stream) {
         return true;
     }
 
-    return false;
+    // Exclude foreign-only audio tags
+    if (/\b(german|deutsch|ita|italian|italiano|es|esp|spanish|castellano|rus|russian|hindi|tamil|telugu)\b/i.test(text)) {
+        return false;
+    }
+
+    // Standard untagged scene/P2P releases are English by default
+    return true;
 }
 
 function parseAioStream(s) {
@@ -168,8 +174,11 @@ function parseAioStream(s) {
 
     const languages = [];
     if (name.includes('\u1d07\u0274') || desc.includes('\u1d07\u0274') || textContainsLang(combined, 'en')) languages.push('🇬🇧 EN');
-    if (name.includes('\u0284\u0280') || desc.includes('\u0284\u0280') || textContainsLang(combined, 'fr')) languages.push('🇫🇷 FR');
+    if (name.includes('\u0493\u0280') || desc.includes('\u0493\u0280') || name.includes('\u0284\u0280') || desc.includes('\u0284\u0280') || textContainsLang(combined, 'fr')) languages.push('🇫🇷 FR');
     if (languages.length === 0 && /\b(multi)\b/i.test(combined)) languages.push('🇬🇧 EN', '🇫🇷 FR');
+    if (languages.length === 0 && !/\b(german|deutsch|ita|italian|italiano|es|esp|spanish|castellano|rus|russian|hindi)\b/i.test(combined)) {
+        languages.push('🇬🇧 EN');
+    }
 
     return {
         url: s.url,
@@ -203,13 +212,17 @@ function score1080pDownward(stream) {
         return null;
     const hints = stream?.behaviorHints || {};
     const text = `${stream?.name || ''} ${stream?.description || ''} ${hints?.filename || ''} ${hints?.bingeGroup || ''}`.toLowerCase();
-    if (/(2160p|\b4k\b|\buhd\b|\bcam\b|telesync|telecine|workprint|dvdscr)/.test(text))
+    if (/(\bcam\b|telesync|telecine|workprint|dvdscr)/.test(text))
         return null;
     let resRank = 0;
     let resLabel = 'SD';
     if (text.includes('1080p')) {
-        resRank = 3;
+        resRank = 4;
         resLabel = '1080p';
+    }
+    else if (text.includes('2160p') || text.includes('4k') || text.includes('uhd')) {
+        resRank = 3;
+        resLabel = '4K';
     }
     else if (text.includes('720p')) {
         resRank = 2;
@@ -274,9 +287,14 @@ async function fetchBestCandidate(type, id) {
         if (!resp.ok)
             return null;
         const data = await resp.json();
-        const candidates = (data?.streams || [])
+        const rawStreams = data?.streams || [];
+        let candidates = rawStreams
+            .filter(hasEnglishOrFrench)
             .map(score1080pDownward)
             .filter(Boolean);
+        if (candidates.length === 0) {
+            candidates = rawStreams.map(score1080pDownward).filter(Boolean);
+        }
         candidates.sort((a, b) => (b.cached - a.cached) ||
             (b.resRank - a.resRank) ||
             (b.qRank - a.qRank) ||
@@ -604,10 +622,11 @@ export function registerStremioRoutes(app, database, settings, config, requester
         ]);
 
         const rawStreams = aioResp?.streams || [];
-        // Strict filter: English or French present only, retaining EXACT order!
-        const streams = rawStreams
-            .filter(s => s && s.url && hasEnglishOrFrench(s))
-            .map(parseAioStream);
+        let matching = rawStreams.filter(s => s && s.url && hasEnglishOrFrench(s));
+        if (matching.length === 0 && rawStreams.length > 0) {
+            matching = rawStreams.filter(s => s && s.url);
+        }
+        const streams = matching.map(parseAioStream);
 
         return reply.header('Cache-Control', 'no-store').send({
             ok: true,
@@ -1052,9 +1071,15 @@ export function registerStremioRoutes(app, database, settings, config, requester
                 else {
                     streams.push({
                         name: 'My-Media-Dock',
-                        description: `⬇ Download Movie\nClick to choose quality`,
-                        url: `${settings.baseUrl}/addon/${encodeURIComponent(accessToken)}/download/prompt/movie/${encodeURIComponent(id)}`,
+                        description: `⬇ Download Movie (Best Quality)\n⚡ 1-click auto download`,
+                        url: `${settings.baseUrl}/addon/${encodeURIComponent(accessToken)}/download/movie/${encodeURIComponent(id)}`,
                         behaviorHints: { bingeGroup: `nuvi-flow:dl:movie:${id}` }
+                    });
+                    streams.push({
+                        name: 'My-Media-Dock',
+                        description: `⚙ Choose Quality in Browser\nPick 4K UHD, 1080p, Remux...`,
+                        externalUrl: `${settings.baseUrl}/downloads/choose?type=movie&id=${encodeURIComponent(id)}&mode=movie`,
+                        behaviorHints: { bingeGroup: `nuvi-flow:choose:movie:${id}` }
                     });
                 }
             }
@@ -1097,9 +1122,15 @@ export function registerStremioRoutes(app, database, settings, config, requester
                 else {
                     streams.push({
                         name: 'My-Media-Dock',
-                        description: `⬇ Download S${ss}E${ee}\nClick to choose quality`,
-                        url: `${settings.baseUrl}/addon/${encodeURIComponent(accessToken)}/download/prompt/episode/${encodeURIComponent(id)}`,
+                        description: `⬇ Download S${ss}E${ee} (Best Quality)\n⚡ 1-click auto download & stream`,
+                        url: `${settings.baseUrl}/addon/${encodeURIComponent(accessToken)}/download/episode/${encodeURIComponent(id)}`,
                         behaviorHints: { bingeGroup: `nuvi-flow:dl:ep:${id}` }
+                    });
+                    streams.push({
+                        name: 'My-Media-Dock',
+                        description: `⚙ Choose Quality in Browser\nPick 4K UHD, 1080p, Remux...`,
+                        externalUrl: `${settings.baseUrl}/downloads/choose?type=series&id=${encodeURIComponent(id)}&mode=episode`,
+                        behaviorHints: { bingeGroup: `nuvi-flow:choose:ep:${id}` }
                     });
                 }
             }
@@ -1131,9 +1162,15 @@ export function registerStremioRoutes(app, database, settings, config, requester
             else if (remainingEps > 0) {
                 streams.push({
                     name: 'My-Media-Dock',
-                    description: `⬇ Download Season ${parsedSeries.season}\nClick to choose quality`,
-                    url: `${settings.baseUrl}/addon/${encodeURIComponent(accessToken)}/download/prompt/season/${encodeURIComponent(id)}`,
+                    description: `⬇ Download Season ${parsedSeries.season} (Best Quality)\n⚡ 1-click download ${remainingEps} remaining eps`,
+                    url: `${settings.baseUrl}/addon/${encodeURIComponent(accessToken)}/download/season/${encodeURIComponent(id)}`,
                     behaviorHints: { bingeGroup: `nuvi-flow:dl:season:${id}` }
+                });
+                streams.push({
+                    name: 'My-Media-Dock',
+                    description: `⚙ Choose Season ${parsedSeries.season} Quality in Browser\nPick release pack or profile`,
+                    externalUrl: `${settings.baseUrl}/downloads/choose?type=series&id=${encodeURIComponent(id)}&mode=season`,
+                    behaviorHints: { bingeGroup: `nuvi-flow:choose:season:${id}` }
                 });
             }
 
@@ -1251,7 +1288,55 @@ export function registerStremioRoutes(app, database, settings, config, requester
         const type = mode === 'movie' ? 'movie' : 'series';
         promptUrl = `http://127.0.0.1:60500/downloads/choose?type=${type}&id=${encodeURIComponent(id)}&mode=${encodeURIComponent(mode)}`;
         lastDownloadTriggeredAt = Date.now();
-        return sendCardMp4(request, reply, 'select-source.mp4');
+
+        // Also initiate download in background if not already active so clicking never hangs!
+        if (mode === 'movie') {
+            const dlKey = `movie:${id}`;
+            if (!activeDownloads.has(dlKey)) {
+                (async () => {
+                    try {
+                        const [best, meta] = await Promise.all([
+                            fetchBestCandidate('movie', id),
+                            fetchCinemeta('movie', id)
+                        ]);
+                        if (!best) return;
+                        const title = sanitizePathSegment(meta?.name || id, id);
+                        const year = meta?.releaseInfo ? String(meta.releaseInfo).slice(0, 4) : '';
+                        const folderName = year ? `${title} (${year})` : title;
+                        const ext = path.extname(best.filename || '') || '.mkv';
+                        const filename = sanitizePathSegment(best.filename || `${folderName}.1080p${ext}`, `${folderName}${ext}`);
+                        const destDir = path.join('/media/movies', folderName);
+                        await downloadFileToDisk(dlKey, best.url, destDir, filename, best.videoSize, triggerRescan);
+                    } catch (err) {
+                        app.log.warn({ err, id }, 'Direct movie download failed from prompt');
+                    }
+                })();
+            }
+        } else if (mode === 'episode') {
+            const parsed = episodeId(id);
+            const dlKey = `episode:${id}`;
+            if (parsed && !activeDownloads.has(dlKey)) {
+                (async () => {
+                    try {
+                        const [best, meta] = await Promise.all([
+                            fetchBestCandidate('series', id),
+                            fetchCinemeta('series', parsed.itemId)
+                        ]);
+                        if (!best) return;
+                        const showTitle = sanitizePathSegment(meta?.name || parsed.itemId, parsed.itemId);
+                        const ss = String(parsed.season).padStart(2, '0');
+                        const ee = String(parsed.episode).padStart(2, '0');
+                        const ext = path.extname(best.filename || '') || '.mkv';
+                        const filename = sanitizePathSegment(best.filename || `${showTitle} - S${ss}E${ee} - 1080p${ext}`, `${showTitle} - S${ss}E${ee}${ext}`);
+                        const destDir = path.join('/media/tv', showTitle, `Season ${parsed.season}`);
+                        await downloadFileToDisk(dlKey, best.url, destDir, filename, best.videoSize, triggerRescan);
+                    } catch (err) {
+                        app.log.warn({ err, id }, 'Direct episode download failed from prompt');
+                    }
+                })();
+            }
+        }
+        return sendCardMp4(request, reply, 'download-started.mp4');
     });
 
     app.get(`${prefix}/download/:mode/:id`, secureRoute, async (request, reply) => {
