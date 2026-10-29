@@ -1,4 +1,4 @@
-"""Start CrossWatch + Nuvi-Flow with Stremio; drain active downloads/syncs safely before stopping."""
+"""Start My-Media-Dock with Stremio; drain active downloads and scans safely before stopping."""
 from __future__ import annotations
 
 import argparse
@@ -115,10 +115,8 @@ class Api:
 
 
 def inspect_work():
-    """Check active Nuvi-Flow manual downloads/scans and CrossWatch tracker sync."""
-    private = load_json(ROOT / "private-settings.json")
-    snapshot = {"downloads": 0, "importQueue": 0, "commands": 0,
-                "syncRunning": False, "scanning": False, "libraryProblems": 0}
+    """Check active My-Media-Dock downloads and library scans."""
+    snapshot = {"downloads": 0, "scanning": False, "libraryProblems": 0}
     api = Api()
     dl_status = api.request("http://127.0.0.1:60500/downloads/status")
     if not isinstance(dl_status, dict) or "activeDownloads" not in dl_status:
@@ -135,9 +133,7 @@ def inspect_work():
 
 
 def pending(snapshot):
-    return any(snapshot[key] for key in (
-        "downloads", "importQueue", "commands", "syncRunning", "scanning", "libraryProblems",
-    ))
+    return any(snapshot[key] for key in ("downloads", "scanning", "libraryProblems"))
 
 
 class DrainGate:
@@ -154,7 +150,7 @@ class DrainGate:
     def observe(self, snapshot, now):
         if pending(snapshot):
             self.idle_since = None
-            if any(snapshot[k] for k in ("downloads", "importQueue", "commands", "syncRunning")):
+            if snapshot["downloads"]:
                 self.scan_requested = False
             return "wait"
         if not self.scan_requested:
@@ -176,11 +172,6 @@ def final_scan():
     if not token:
         raise ValueError("Missing library scan authorization")
     api.request(base + "/admin/api/scan", {"mode": "full"}, headers={"X-CSRF-Token": token[1]})
-
-
-def sync_and_refresh():
-    """CrossWatch runs and schedules synchronization independently on the home server."""
-    LOG.info("Tracker synchronization is managed by the home server")
 
 
 class Controller:
@@ -324,9 +315,6 @@ def run_monitor(settings):
                         if phase != last_phase:
                             save_status(phase=phase, stremioOpen=True, message="Services active while Stremio is open")
                             LOG.info("Stremio is open; services remain active")
-                        if time.monotonic() - last_sync >= settings.get("librarySyncSeconds", 3600):
-                            sync_and_refresh()
-                            last_sync = time.monotonic()
                         try:
                             dl_info = Api().request("http://127.0.0.1:60500/downloads/status", timeout=3)
                             trig = int(dl_info.get("lastDownloadTriggeredAt") or 0)
@@ -343,15 +331,12 @@ def run_monitor(settings):
                         phase = "draining"
                         if settings.get("preventSleepWhileDraining", True):
                             keep_awake(True)
-                        if not refreshed:
-                            sync_and_refresh()
-                            refreshed = True
                         if time.monotonic() - last_inspection >= inspect_every:
                             last_inspection = time.monotonic()
                             snapshot = inspect_work()
                             action = gate.observe(snapshot, last_inspection)
                             save_status(phase=phase, stremioOpen=False, pending=snapshot,
-                                        message="Waiting for active downloads, tracker sync and final library scan")
+                                        message="Waiting for active downloads and final library scan")
                             if action == "scan":
                                 final_scan()
                                 gate.scan_requested = True
