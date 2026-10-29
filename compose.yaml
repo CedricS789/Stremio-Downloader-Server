@@ -22,7 +22,7 @@ services:
       HOST: "0.0.0.0"
       PORT: "60500"
       BASE_URL: http://127.0.0.1:60500
-      ADDON_NAME: "My-Media-Dock"
+      ADDON_NAME: "My Media Dock"
       ADMIN_USERNAME: admin
       ADMIN_PASSWORD: "${NUVI_ADMIN_PASSWORD:?Run scripts/Initialize.ps1 first}"
       SESSION_SECRET: "${NUVI_SESSION_SECRET:?Run scripts/Initialize.ps1 first}"

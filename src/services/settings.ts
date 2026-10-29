@@ -11,8 +11,8 @@ export class SettingsService {
       this.regenerateAddonAccessToken();
     }
     const current = this.database.getSetting('addonName');
-    if (!current || current === 'Nuvi-Flow') {
-      this.set('addonName', 'My-Media-Dock');
+    if (!current || current === 'Nuvi-Flow' || current === 'My-Media-Dock') {
+      this.set('addonName', 'My Media Dock');
     }
   }
 
@@ -27,7 +27,7 @@ export class SettingsService {
   get baseUrl(): string { return this.get('baseUrl', this.defaults.baseUrl).replace(/\/+$/, ''); }
   get addonName(): string {
     const val = this.get('addonName', this.defaults.addonName);
-    return (!val || val === 'Nuvi-Flow') ? 'My-Media-Dock' : val;
+    return (!val || val === 'Nuvi-Flow' || val === 'My-Media-Dock') ? 'My Media Dock' : val;
   }
   get addonAccessToken(): string { return this.get('addonAccessToken'); }
   get addonAccessPath(): string { return `/addon/${this.addonAccessToken}`; }

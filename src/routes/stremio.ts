@@ -21,13 +21,13 @@ const manifest = {
         {
             type: 'movie',
             id: 'personal_movies',
-            name: 'My-Media-Dock - Downloaded',
+            name: 'My Media Dock - Downloaded',
             extra: [{ name: 'search', isRequired: false }, { name: 'skip', isRequired: false }]
         },
         {
             type: 'series',
             id: 'personal_series',
-            name: 'My-Media-Dock - Downloaded',
+            name: 'My Media Dock - Downloaded',
             extra: [{ name: 'search', isRequired: false }, { name: 'skip', isRequired: false }]
         }
     ],
@@ -983,7 +983,7 @@ export function registerStremioRoutes(app, database, settings, config, requester
             .send({
             ...manifest,
             name: 'My-Media-Dock',
-            catalogs: manifest.catalogs.map(c => ({ ...c, name: 'My-Media-Dock - Downloaded' })),
+            catalogs: manifest.catalogs.map(c => ({ ...c, name: 'My Media Dock - Downloaded' })),
             logo: `${settings.baseUrl}/addon-icon?v=${settings.addonIconUpdatedAt}`
         });
     });
