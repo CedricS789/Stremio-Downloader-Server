@@ -1,6 +1,6 @@
-# Cedric's Media Dock
+# My-Media-Dock
 
-This private project is Cedric's customized media integration; it is not an official Stremio project. The custom integration and its setup notes are in [custom/README.md](custom/README.md). The original upstream documentation follows for attribution and reference; upstream source remains Nuvi-Flow and is not the customized download implementation.
+This private project is a personal customized media integration; it is not an official Stremio project. The custom integration and its setup notes are in [custom/README.md](custom/README.md). The original upstream documentation follows for attribution and reference; upstream source remains Nuvi-Flow and is not the customized download implementation.
 
 ---
 

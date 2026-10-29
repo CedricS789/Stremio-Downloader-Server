@@ -12,7 +12,7 @@ import { planSiloPlayback } from '../services/playback/playback-policy.js';
 const manifest = {
     id: 'community.nuviflow',
     version: buildInfo().version,
-    name: 'Cedric\'s Media Dock',
+    name: 'My-Media-Dock',
     description: 'Direct playback and in-Stremio downloads for your personal movie and TV library.',
     resources: ['catalog', 'meta', 'stream'],
     types: ['movie', 'series'],
@@ -20,13 +20,13 @@ const manifest = {
         {
             type: 'movie',
             id: 'personal_movies',
-            name: 'Cedric\'s Media Dock - Downloaded',
+            name: 'My-Media-Dock - Downloaded',
             extra: [{ name: 'search', isRequired: false }, { name: 'skip', isRequired: false }]
         },
         {
             type: 'series',
             id: 'personal_series',
-            name: 'Cedric\'s Media Dock - Downloaded',
+            name: 'My-Media-Dock - Downloaded',
             extra: [{ name: 'search', isRequired: false }, { name: 'skip', isRequired: false }]
         }
     ],
@@ -883,8 +883,8 @@ export function registerStremioRoutes(app, database, settings, config, requester
             .header('Cache-Control', 'no-store')
             .send({
             ...manifest,
-            name: 'Cedric\'s Media Dock',
-            catalogs: manifest.catalogs.map(c => ({ ...c, name: 'Cedric\'s Media Dock - Downloaded' })),
+            name: 'My-Media-Dock',
+            catalogs: manifest.catalogs.map(c => ({ ...c, name: 'My-Media-Dock - Downloaded' })),
             logo: `${settings.baseUrl}/addon-icon?v=${settings.addonIconUpdatedAt}`
         });
     });
@@ -1024,7 +1024,7 @@ export function registerStremioRoutes(app, database, settings, config, requester
                 const delKey = `movie:${id}`;
                 const armed = isDeleteArmed(delKey);
                 streams.push({
-                    name: 'Cedric\'s Media Dock',
+                    name: 'My-Media-Dock',
                     description: armed
                         ? `⚠️ CONFIRM DELETE Movie\nClick to delete now (3m)`
                         : `🗑 Delete Movie (${formatGb(totalBytes)})\nClick once to arm`,
@@ -1036,13 +1036,13 @@ export function registerStremioRoutes(app, database, settings, config, requester
                 const active = activeDownloads.get(`movie:${id}`);
                 if (active) {
                     streams.push({
-                        name: 'Cedric\'s Media Dock',
+                        name: 'My-Media-Dock',
                         description: `⏳ Downloading Movie\n${formatProgressBar(active.downloadedBytes, active.totalBytes, active.startedAt)}`,
                         url: `${settings.baseUrl}/addon/${encodeURIComponent(accessToken)}/download/status/${encodeURIComponent(id)}`,
                         behaviorHints: { bingeGroup: `nuvi-flow:dl:${id}` }
                     });
                     streams.push({
-                        name: 'Cedric\'s Media Dock',
+                        name: 'My-Media-Dock',
                         description: `🛑 Cancel Movie Download\nStop active download`,
                         url: `${settings.baseUrl}/addon/${encodeURIComponent(accessToken)}/cancel/movie/${encodeURIComponent(id)}`,
                         behaviorHints: { bingeGroup: `nuvi-flow:cancel:${id}` }
@@ -1050,7 +1050,7 @@ export function registerStremioRoutes(app, database, settings, config, requester
                 }
                 else {
                     streams.push({
-                        name: 'Cedric\'s Media Dock',
+                        name: 'My-Media-Dock',
                         description: `⬇ Download Movie\nClick to choose quality`,
                         url: `${settings.baseUrl}/addon/${encodeURIComponent(accessToken)}/download/prompt/movie/${encodeURIComponent(id)}`,
                         behaviorHints: { bingeGroup: `nuvi-flow:dl:movie:${id}` }
@@ -1069,7 +1069,7 @@ export function registerStremioRoutes(app, database, settings, config, requester
                 const epBytes = files.reduce((acc, f) => acc + (Number(f.size) || 0), 0);
                 const armedEp = isDeleteArmed(epKey);
                 streams.push({
-                    name: 'Cedric\'s Media Dock',
+                    name: 'My-Media-Dock',
                     description: armedEp
                         ? `⚠️ CONFIRM DELETE S${ss}E${ee}\nClick to delete now (3m)`
                         : `🗑 Delete S${ss}E${ee} (${formatGb(epBytes)})\nClick once to arm`,
@@ -1081,13 +1081,13 @@ export function registerStremioRoutes(app, database, settings, config, requester
                 const activeEp = activeDownloads.get(epKey);
                 if (activeEp) {
                     streams.push({
-                        name: 'Cedric\'s Media Dock',
+                        name: 'My-Media-Dock',
                         description: `⏳ Downloading S${ss}E${ee}\n${formatProgressBar(activeEp.downloadedBytes, activeEp.totalBytes, activeEp.startedAt)}`,
                         url: `${settings.baseUrl}/addon/${encodeURIComponent(accessToken)}/download/status/${encodeURIComponent(id)}`,
                         behaviorHints: { bingeGroup: `nuvi-flow:dl:ep:${id}` }
                     });
                     streams.push({
-                        name: 'Cedric\'s Media Dock',
+                        name: 'My-Media-Dock',
                         description: `🛑 Cancel S${ss}E${ee} Download\nStop active download`,
                         url: `${settings.baseUrl}/addon/${encodeURIComponent(accessToken)}/cancel/episode/${encodeURIComponent(id)}`,
                         behaviorHints: { bingeGroup: `nuvi-flow:cancel:ep:${id}` }
@@ -1095,7 +1095,7 @@ export function registerStremioRoutes(app, database, settings, config, requester
                 }
                 else {
                     streams.push({
-                        name: 'Cedric\'s Media Dock',
+                        name: 'My-Media-Dock',
                         description: `⬇ Download S${ss}E${ee}\nClick to choose quality`,
                         url: `${settings.baseUrl}/addon/${encodeURIComponent(accessToken)}/download/prompt/episode/${encodeURIComponent(id)}`,
                         behaviorHints: { bingeGroup: `nuvi-flow:dl:ep:${id}` }
@@ -1115,13 +1115,13 @@ export function registerStremioRoutes(app, database, settings, config, requester
             if (activeDownloads.has(seasonKey)) {
                 const activeSeason = activeDownloads.get(seasonKey);
                 streams.push({
-                    name: 'Cedric\'s Media Dock',
+                    name: 'My-Media-Dock',
                     description: `⏳ Downloading Season ${parsedSeries.season}\n${activeSeason.filename}`,
                     url: `${settings.baseUrl}/addon/${encodeURIComponent(accessToken)}/download/status/${encodeURIComponent(id)}`,
                     behaviorHints: { bingeGroup: `nuvi-flow:dl:season:${id}` }
                 });
                 streams.push({
-                    name: 'Cedric\'s Media Dock',
+                    name: 'My-Media-Dock',
                     description: `🛑 Cancel Season ${parsedSeries.season} Download\nStop remaining queued eps`,
                     url: `${settings.baseUrl}/addon/${encodeURIComponent(accessToken)}/cancel/season/${encodeURIComponent(id)}`,
                     behaviorHints: { bingeGroup: `nuvi-flow:cancel:season:${id}` }
@@ -1129,7 +1129,7 @@ export function registerStremioRoutes(app, database, settings, config, requester
             }
             else if (remainingEps > 0) {
                 streams.push({
-                    name: 'Cedric\'s Media Dock',
+                    name: 'My-Media-Dock',
                     description: `⬇ Download Season ${parsedSeries.season}\nClick to choose quality`,
                     url: `${settings.baseUrl}/addon/${encodeURIComponent(accessToken)}/download/prompt/season/${encodeURIComponent(id)}`,
                     behaviorHints: { bingeGroup: `nuvi-flow:dl:season:${id}` }
@@ -1140,7 +1140,7 @@ export function registerStremioRoutes(app, database, settings, config, requester
                 const seasonLocalBytes = localSeasonRows.reduce((acc, r) => acc + (Number(r.size) || 0), 0);
                 const armedSeason = isDeleteArmed(seasonKey);
                 streams.push({
-                    name: 'Cedric\'s Media Dock',
+                    name: 'My-Media-Dock',
                     description: armedSeason
                         ? `⚠️ CONFIRM DELETE S${parsedSeries.season}\nClick to delete now (3m)`
                         : `🗑 Delete Season ${parsedSeries.season} (${formatGb(seasonLocalBytes)})\n${localSeasonRows.length} eps • Click to arm`,
