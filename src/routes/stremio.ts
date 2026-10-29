@@ -1249,6 +1249,13 @@ export function registerStremioRoutes(app, database, settings, config, requester
             }
         }
 
+        streams.push({
+            name: 'My-Media-Dock',
+            description: '⚙ Open Web App\nConsole & Downloads',
+            externalUrl: `${settings.baseUrl}/admin`,
+            behaviorHints: { bingeGroup: 'nuvi-flow:open:admin' }
+        });
+
         reply.header('Cache-Control', 'no-store').send({ streams });
     });
 
