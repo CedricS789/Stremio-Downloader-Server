@@ -761,9 +761,10 @@ export function registerStremioRoutes(app, database, settings, config, requester
 
     app.get('/downloads', async (request, reply) => {
         if (!checkDownloadsAuth(request, reply)) {
-            reply.clearCookie('nuviflow_admin', { path: '/' });
-            reply.clearCookie('nuviflow_admin', { path: '/admin' });
-            return reply.redirect('/admin/login?next=/downloads');
+            const isSecure = settings.baseUrl.startsWith('https://');
+            reply.clearCookie('nuviflow_admin', { path: '/', secure: isSecure, sameSite: 'lax' });
+            reply.clearCookie('nuviflow_admin', { path: '/admin', secure: isSecure, sameSite: 'lax' });
+            return reply.header('Cache-Control', 'no-store').redirect('/admin/login?next=/downloads&failed=1');
         }
         const htmlPath = path.join('/app/cards', 'downloads.html');
         if (fs.existsSync(htmlPath)) {
@@ -775,10 +776,11 @@ export function registerStremioRoutes(app, database, settings, config, requester
 
     app.get('/downloads/choose', async (request, reply) => {
         if (!checkDownloadsAuth(request, reply)) {
-            reply.clearCookie('nuviflow_admin', { path: '/' });
-            reply.clearCookie('nuviflow_admin', { path: '/admin' });
+            const isSecure = settings.baseUrl.startsWith('https://');
+            reply.clearCookie('nuviflow_admin', { path: '/', secure: isSecure, sameSite: 'lax' });
+            reply.clearCookie('nuviflow_admin', { path: '/admin', secure: isSecure, sameSite: 'lax' });
             const nextUrl = String(request.raw.url || '/downloads');
-            return reply.redirect(`/admin/login?next=${encodeURIComponent(nextUrl)}`);
+            return reply.header('Cache-Control', 'no-store').redirect(`/admin/login?next=${encodeURIComponent(nextUrl)}&failed=1`);
         }
         const htmlPath = path.join('/app/cards', 'choose.html');
         if (fs.existsSync(htmlPath)) {
@@ -1260,7 +1262,7 @@ export function registerStremioRoutes(app, database, settings, config, requester
         let requestedEpisode;
         let parsedSeries = null;
         if (type === 'movie') {
-            files = database.sqlite.prepare(`SELECT mf.* FROM media_files mf JOIN media_items mi ON mi.id=mf.media_item_id
+            files = database.sqlite.prepare(`SELECT mf.*, mi.title as item_title, mi.display_title as item_display_title, mi.year as item_year FROM media_files mf JOIN media_items mi ON mi.id=mf.media_item_id
         WHERE mi.type='movie' AND (mi.stremio_id=? OR ('tmdb:' || mi.tmdb_id)=?) AND mf.status='matched' ORDER BY mf.quality DESC`).all(id, id);
         }
         else if (type === 'series') {
@@ -1270,7 +1272,7 @@ export function registerStremioRoutes(app, database, settings, config, requester
                     season: parsedSeries.season,
                     episode: parsedSeries.episode
                 };
-                files = database.sqlite.prepare(`SELECT mf.* FROM media_files mf JOIN media_items mi ON mi.id=mf.media_item_id
+                files = database.sqlite.prepare(`SELECT mf.*, mi.title as item_title, mi.display_title as item_display_title, mi.year as item_year FROM media_files mf JOIN media_items mi ON mi.id=mf.media_item_id
           WHERE mi.type='series' AND (mi.stremio_id=? OR ('tmdb:' || mi.tmdb_id)=?) AND mf.status='matched' AND mf.season=?
           AND mf.episode_start<=? AND mf.episode_end>=? ORDER BY mf.quality DESC`).all(parsedSeries.itemId, parsedSeries.itemId, parsedSeries.season, parsedSeries.episode, parsedSeries.episode);
             }
@@ -1303,34 +1305,37 @@ export function registerStremioRoutes(app, database, settings, config, requester
             const detailsLine = [releaseType, sizeStr].filter(Boolean).join(' • ');
 
             let playTag = 'Direct Play';
+            let epCode = '';
             if (requestedEpisode?.season !== undefined && requestedEpisode?.episode !== undefined) {
                 const ss = String(requestedEpisode.season).padStart(2, '0');
                 const ee = String(requestedEpisode.episode).padStart(2, '0');
-                playTag = `S${ss}E${ee} • Direct Play`;
+                epCode = `S${ss}E${ee}`;
+                playTag = `${epCode} • Direct Play`;
             } else if (file.season !== undefined && file.episode_start !== undefined) {
                 const ss = String(file.season).padStart(2, '0');
                 const ee = String(file.episode_start).padStart(2, '0');
-                playTag = `S${ss}E${ee} • Direct Play`;
+                epCode = `S${ss}E${ee}`;
+                playTag = `${epCode} • Direct Play`;
             }
 
-            const lanBase = (settings.lanBaseUrl || String(process.env.LAN_BASE_URL || '')).trim().replace(/\/+$/, '');
-            const lanDescription = [
-                `🏠 LAN Direct • ${res}`,
-                detailsLine,
-                playTag
-            ].filter(Boolean).join('\n');
-            const remoteDescription = [
-                `🌐 Remote • ${res}`,
+            const showTitle = file.item_display_title || file.item_title || '';
+            const cleanFilename = type === 'series' && showTitle && epCode
+                ? `${showTitle} ${epCode}.mkv`
+                : (showTitle ? `${showTitle}${file.item_year ? ` (${file.item_year})` : ''}.mkv` : path.basename(file.relative_path));
+
+            const streamTitleLine = [res, detailsLine].filter(Boolean).join(' • ');
+            const streamDescription = [
                 detailsLine,
                 playTag
             ].filter(Boolean).join('\n');
 
+            const lanBase = (settings.lanBaseUrl || String(process.env.LAN_BASE_URL || '')).trim().replace(/\/+$/, '');
             const localStreams = [];
             if (lanBase) {
                 localStreams.push({
-                    name: 'Stremio Downloader Server',
-                    title: lanDescription,
-                    description: lanDescription,
+                    name: '🏠 LAN Direct',
+                    title: streamTitleLine,
+                    description: streamDescription,
                     url: `${lanBase}/media/${encodeURIComponent(token)}`,
                     subtitles: subtitles.map((subtitle: any) => ({
                         id: subtitle.id,
@@ -1339,15 +1344,15 @@ export function registerStremioRoutes(app, database, settings, config, requester
                     })),
                     behaviorHints: {
                         bingeGroup: `nuvi-flow:${file.media_item_id}`,
-                        filename: path.basename(file.relative_path),
+                        filename: cleanFilename,
                         videoSize: file.size
                     }
                 });
             }
             localStreams.push({
-                name: 'Stremio Downloader Server',
-                title: remoteDescription,
-                description: remoteDescription,
+                name: '🌐 Remote',
+                title: streamTitleLine,
+                description: streamDescription,
                 url: `${settings.baseUrl}/media/${encodeURIComponent(token)}`,
                 subtitles: subtitles.map((subtitle: any) => ({
                     id: subtitle.id,
@@ -1356,7 +1361,7 @@ export function registerStremioRoutes(app, database, settings, config, requester
                 })),
                 behaviorHints: {
                     bingeGroup: `nuvi-flow:${file.media_item_id}`,
-                    filename: path.basename(file.relative_path),
+                    filename: cleanFilename,
                     videoSize: file.size
                 }
             });

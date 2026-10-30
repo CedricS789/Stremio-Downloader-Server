@@ -329,11 +329,24 @@ export function registerAdminRoutes(
     if (!nextUrl.startsWith('/') || nextUrl.startsWith('/admin/login')) {
       nextUrl = '/downloads';
     }
+    const isSecure = settings.baseUrl.startsWith('https://');
+    const authFailed = Boolean((request.query as any)?.failed);
+
+    if (authFailed) {
+      reply.clearCookie(COOKIE_NAME, { path: '/', secure: isSecure, sameSite: 'lax' });
+      reply.clearCookie(COOKIE_NAME, { path: '/admin', secure: isSecure, sameSite: 'lax' });
+      return reply.type('text/html; charset=utf-8').header('Cache-Control', 'no-store').send(loginHtml('', nextUrl));
+    }
+
     const session = sessionFor(request, config);
     if (session) {
-      return reply.redirect(nextUrl);
+      const { token } = createSessionToken(session.username, config.sessionSecret);
+      reply.clearCookie(COOKIE_NAME, { path: '/admin', secure: isSecure, sameSite: 'lax' });
+      return reply.setCookie(COOKIE_NAME, token, {
+        path: '/', httpOnly: true, sameSite: 'lax', secure: isSecure, maxAge: 12 * 60 * 60
+      }).redirect(nextUrl);
     }
-    return reply.type('text/html; charset=utf-8').send(loginHtml('', nextUrl));
+    return reply.type('text/html; charset=utf-8').header('Cache-Control', 'no-store').send(loginHtml('', nextUrl));
   });
 
   app.post('/admin/login', { config: { rateLimit: { max: 20, timeWindow: '15 minutes' } } }, async (request, reply) => {
@@ -345,11 +358,12 @@ export function registerAdminRoutes(
     if (!nextUrl.startsWith('/') || nextUrl.startsWith('/admin/login')) {
       nextUrl = '/downloads';
     }
+    const isSecure = settings.baseUrl.startsWith('https://');
     if (!valid) return reply.code(401).type('text/html; charset=utf-8').send(loginHtml('The username or password is incorrect.', nextUrl));
     const { token } = createSessionToken(body.username!, config.sessionSecret);
-    reply.clearCookie(COOKIE_NAME, { path: '/admin' });
+    reply.clearCookie(COOKIE_NAME, { path: '/admin', secure: isSecure, sameSite: 'lax' });
     return reply.setCookie(COOKIE_NAME, token, {
-      path: '/', httpOnly: true, sameSite: 'lax', secure: settings.baseUrl.startsWith('https://'), maxAge: 12 * 60 * 60
+      path: '/', httpOnly: true, sameSite: 'lax', secure: isSecure, maxAge: 12 * 60 * 60
     }).redirect(nextUrl);
   });
 
@@ -360,8 +374,9 @@ export function registerAdminRoutes(
   });
 
   app.post('/admin/logout', async (_request, reply) => {
-    reply.clearCookie(COOKIE_NAME, { path: '/admin' });
-    return reply.clearCookie(COOKIE_NAME, { path: '/' }).send({ ok: true });
+    const isSecure = settings.baseUrl.startsWith('https://');
+    reply.clearCookie(COOKIE_NAME, { path: '/admin', secure: isSecure, sameSite: 'lax' });
+    return reply.clearCookie(COOKIE_NAME, { path: '/', secure: isSecure, sameSite: 'lax' }).send({ ok: true });
   });
 
   app.get('/admin/api/state', { preHandler: requireAdmin(config) }, async (_request, reply) => {

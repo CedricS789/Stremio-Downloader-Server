@@ -667,47 +667,6 @@
     }
   }
 
-  /* Danger Zone */
-  .danger-zone-card {
-    margin-top: 36px;
-    padding: 22px 24px;
-    background: #0d0f18;
-    border: 1px solid rgba(244, 63, 94, 0.28);
-    border-radius: 14px;
-    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
-  }
-  .danger-zone-header {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 10px;
-  }
-  .danger-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    font-size: 11px;
-    font-weight: 800;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    padding: 4px 10px;
-    border-radius: 6px;
-    background: rgba(244, 63, 94, 0.15);
-    color: #fda4af;
-    border: 1px solid rgba(244, 63, 94, 0.35);
-  }
-  .danger-title {
-    font-size: 15px;
-    font-weight: 800;
-    color: var(--text);
-  }
-  .danger-desc {
-    font-size: 13px;
-    color: var(--text-muted);
-    line-height: 1.55;
-    margin: 0 0 16px 0;
-    max-width: 720px;
-  }
 
   /* Deletion Modal */
   .modal-overlay {
@@ -986,19 +945,6 @@
 
   <div id="files-list"></div>
 
-  <!-- DANGER ZONE (Separated at bottom of page to prevent accidents) -->
-  <div class="danger-zone-card">
-    <div class="danger-zone-header">
-      <div class="danger-badge">⚠️ DANGER ZONE</div>
-      <div class="danger-title">Destructive Media Operations</div>
-    </div>
-    <p class="danger-desc">
-      Permanently delete all downloaded movies, TV episodes, and media directories from local disk storage. This action is irreversible and requires confirmation and administrator authorization.
-    </p>
-    <button class="btn-base btn-danger" onclick="openDeleteModal('all')" style="padding:10px 18px; font-weight:800; font-size:13px; display:inline-flex; align-items:center; gap:8px;">
-      <span>🗑️</span><span>Wipe All Downloaded Media...</span>
-    </button>
-  </div>
 
 </div>
 
@@ -1082,19 +1028,19 @@ function formatDate(ts) {
 }
 
 async function rescanLibrary() {
-  await fetch('/downloads/rescan', { method: 'POST' });
+  await fetch('/downloads/rescan', { method: 'POST', credentials: 'include' });
   refresh();
 }
 
 async function cancelDl(key) {
   if (!confirm('Cancel active download: ' + key + '?')) return;
-  await fetch('/downloads/cancel?key=' + encodeURIComponent(key), { method: 'POST' });
+  await fetch('/downloads/cancel?key=' + encodeURIComponent(key), { method: 'POST', credentials: 'include' });
   refresh();
 }
 
 async function cancelAllDownloads() {
   if (!confirm('Cancel ALL active background downloads?')) return;
-  await fetch('/downloads/cancel?all=true', { method: 'POST' });
+  await fetch('/downloads/cancel?all=true', { method: 'POST', credentials: 'include' });
   refresh();
 }
 
@@ -1280,6 +1226,7 @@ async function executeDeletion() {
       res = await fetch('/downloads/delete-file', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ id: currentDeleteTarget.meta.id, password: password })
       });
       if (res.ok) {
@@ -1289,6 +1236,7 @@ async function executeDeletion() {
       res = await fetch('/downloads/delete-batch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ ids: currentDeleteTarget.meta.ids, password: password })
       });
       if (res.ok) {
@@ -1298,19 +1246,10 @@ async function executeDeletion() {
       res = await fetch('/downloads/delete-show', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ title: currentDeleteTarget.meta.title, password: password })
       });
       if (res.ok && activeFilter === 'show:' + currentDeleteTarget.meta.title) {
-        activeFilter = 'all';
-      }
-    } else if (currentDeleteTarget.type === 'all') {
-      res = await fetch('/downloads/delete-all', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password: password })
-      });
-      if (res.ok) {
-        selectedIds.clear();
         activeFilter = 'all';
       }
     }
@@ -1344,9 +1283,6 @@ function deleteShow(title, count, size) {
 }
 function deleteSelected() {
   openDeleteModal('batch');
-}
-function deleteAllMedia() {
-  openDeleteModal('all');
 }
 
 function setFilter(filter) {
@@ -1676,18 +1612,18 @@ function render() {
 
 async function logout() {
   try {
-    await fetch('/admin/logout', { method: 'POST' });
+    await fetch('/admin/logout', { method: 'POST', credentials: 'include' });
   } catch (e) {}
   location.href = '/admin/login';
 }
 
 async function refresh() {
   try {
-    const r = await fetch('/downloads/status');
+    const r = await fetch('/downloads/status', { credentials: 'include' });
     if (r.status === 401) {
       if (!window._redirecting) {
         window._redirecting = true;
-        location.href = '/admin/login?next=/downloads';
+        location.href = '/admin/login?next=/downloads&failed=1';
       }
       return;
     }
