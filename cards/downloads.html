@@ -666,6 +666,231 @@
       padding: 6px 12px;
     }
   }
+
+  /* Danger Zone */
+  .danger-zone-card {
+    margin-top: 36px;
+    padding: 22px 24px;
+    background: #0d0f18;
+    border: 1px solid rgba(244, 63, 94, 0.28);
+    border-radius: 14px;
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
+  }
+  .danger-zone-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 10px;
+  }
+  .danger-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 4px 10px;
+    border-radius: 6px;
+    background: rgba(244, 63, 94, 0.15);
+    color: #fda4af;
+    border: 1px solid rgba(244, 63, 94, 0.35);
+  }
+  .danger-title {
+    font-size: 15px;
+    font-weight: 800;
+    color: var(--text);
+  }
+  .danger-desc {
+    font-size: 13px;
+    color: var(--text-muted);
+    line-height: 1.55;
+    margin: 0 0 16px 0;
+    max-width: 720px;
+  }
+
+  /* Deletion Modal */
+  .modal-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(4, 6, 11, 0.82);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    z-index: 9999;
+    animation: modalFadeIn 0.15s ease-out;
+  }
+  @keyframes modalFadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  .modal-dialog {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    width: 100%;
+    max-width: 480px;
+    box-shadow: 0 20px 45px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.04);
+    overflow: hidden;
+    animation: modalSlideUp 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  @keyframes modalSlideUp {
+    from { transform: scale(0.96) translateY(8px); opacity: 0; }
+    to { transform: scale(1) translateY(0); opacity: 1; }
+  }
+  .modal-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 20px 22px 16px;
+    border-bottom: 1px solid var(--border);
+    position: relative;
+  }
+  .modal-icon-badge {
+    width: 38px;
+    height: 38px;
+    border-radius: 10px;
+    background: var(--rose-surface);
+    border: 1px solid var(--rose-border);
+    display: grid;
+    place-items: center;
+    font-size: 18px;
+    flex-shrink: 0;
+  }
+  .modal-title {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 800;
+    color: var(--text);
+  }
+  .modal-subtitle {
+    margin: 3px 0 0;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  .modal-close-btn {
+    position: absolute;
+    top: 18px;
+    right: 18px;
+    background: transparent;
+    border: none;
+    color: var(--text-dim);
+    font-size: 18px;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 6px;
+    line-height: 1;
+  }
+  .modal-close-btn:hover {
+    color: var(--text);
+    background: var(--surface-raised);
+  }
+  .modal-body {
+    padding: 20px 22px;
+  }
+  .modal-summary-box {
+    background: #090c13;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 14px;
+  }
+  .summary-target {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text);
+    word-break: break-all;
+    line-height: 1.4;
+  }
+  .summary-meta {
+    font-size: 12px;
+    color: var(--accent);
+    font-weight: 600;
+    margin-top: 4px;
+  }
+  .modal-warning-callout {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    padding: 11px 13px;
+    border-radius: 10px;
+    background: rgba(244, 63, 94, 0.1);
+    border: 1px solid rgba(244, 63, 94, 0.25);
+    color: #fecdd3;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  .modal-field {
+    margin-top: 14px;
+  }
+  .modal-label {
+    display: block;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+  }
+  .modal-label code {
+    background: #171d2c;
+    color: #f43f5e;
+    padding: 2px 5px;
+    border-radius: 4px;
+    border: 1px solid rgba(244, 63, 94, 0.3);
+  }
+  .modal-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 10px 14px;
+    background: #090c13;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    color: var(--text);
+    font-size: 14px;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  .modal-input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-glow);
+  }
+  .password-toggle-btn {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: transparent;
+    border: none;
+    color: var(--text-dim);
+    cursor: pointer;
+    font-size: 14px;
+    padding: 4px 6px;
+    border-radius: 4px;
+  }
+  .password-toggle-btn:hover {
+    color: var(--text);
+  }
+  .modal-error {
+    margin-top: 12px;
+    padding: 9px 12px;
+    background: rgba(244, 63, 94, 0.15);
+    border: 1px solid rgba(244, 63, 94, 0.4);
+    color: #fda4af;
+    font-size: 12px;
+    font-weight: 600;
+    border-radius: 8px;
+  }
+  .modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    padding: 14px 22px 20px;
+    border-top: 1px solid var(--border);
+    background: var(--surface-raised);
+  }
 </style>
 </head>
 <body>
@@ -682,7 +907,6 @@
     <div class="header-actions">
       <a href="/admin" class="btn-base btn-primary" style="background:#131d2e; color:#7dd3fc; border-color:#1e3a5f;">⚙️ App Console</a>
       <button class="btn-base btn-primary" onclick="rescanLibrary()">🔄 Rescan Library</button>
-      <button class="btn-base btn-danger" onclick="deleteAllMedia()">🗑️ Delete All</button>
       <button class="btn-base btn-primary" style="background:#18181b; border-color:#27272a; color:#a1a1aa;" onclick="logout()">🔒 Sign Out</button>
     </div>
   </div>
@@ -762,6 +986,78 @@
 
   <div id="files-list"></div>
 
+  <!-- DANGER ZONE (Separated at bottom of page to prevent accidents) -->
+  <div class="danger-zone-card">
+    <div class="danger-zone-header">
+      <div class="danger-badge">⚠️ DANGER ZONE</div>
+      <div class="danger-title">Destructive Media Operations</div>
+    </div>
+    <p class="danger-desc">
+      Permanently delete all downloaded movies, TV episodes, and media directories from local disk storage. This action is irreversible and requires confirmation and administrator authorization.
+    </p>
+    <button class="btn-base btn-danger" onclick="openDeleteModal('all')" style="padding:10px 18px; font-weight:800; font-size:13px; display:inline-flex; align-items:center; gap:8px;">
+      <span>🗑️</span><span>Wipe All Downloaded Media...</span>
+    </button>
+  </div>
+
+</div>
+
+<!-- MULTI-STEP CONFIRMATION & PASSWORD VERIFICATION MODAL -->
+<div id="deleteModal" class="modal-overlay" style="display:none;" onclick="handleModalBackdropClick(event)">
+  <div class="modal-dialog">
+    <div class="modal-header">
+      <div class="modal-icon-badge" id="modalIconBadge">⚠️</div>
+      <div style="flex:1; min-width:0;">
+        <h3 class="modal-title" id="modalTitle">Confirm Deletion</h3>
+        <p class="modal-subtitle" id="modalSubtitle">Step 1 of 2: Impact Assessment</p>
+      </div>
+      <button class="modal-close-btn" onclick="closeDeleteModal()" aria-label="Close dialog">✕</button>
+    </div>
+
+    <div class="modal-body">
+      <!-- STEP 1: IMPACT & PHRASE CONFIRMATION -->
+      <div id="modalStep1">
+        <div class="modal-summary-box">
+          <div class="summary-target" id="modalTargetName">Filename</div>
+          <div class="summary-meta" id="modalTargetMeta">1 file • 5.58 GB</div>
+        </div>
+        <div class="modal-warning-callout">
+          <span style="font-size:16px;">⚠️</span>
+          <span>This will permanently delete the selected file(s) from your server disk. <b>This cannot be undone.</b></span>
+        </div>
+
+        <div id="modalPhraseGroup" style="display:none; margin-top:16px;">
+          <label class="modal-label" id="modalPhraseLabel">Type <code>DELETE</code> to confirm:</label>
+          <input type="text" id="modalPhraseInput" class="modal-input" placeholder="DELETE" autocomplete="off" oninput="checkPhraseMatch()">
+        </div>
+      </div>
+
+      <!-- STEP 2: PASSWORD VERIFICATION -->
+      <div id="modalStep2" style="display:none;">
+        <div class="modal-summary-box" style="margin-bottom:16px;">
+          <div style="font-size:11px; color:var(--text-muted); text-transform:uppercase; font-weight:800; letter-spacing:0.05em;">Authorizing Deletion</div>
+          <div class="summary-meta" id="modalStep2Meta" style="color:var(--text); font-weight:800; font-size:14px; margin-top:4px;">1 file • 5.58 GB</div>
+        </div>
+
+        <div class="modal-field">
+          <label class="modal-label" for="modalPasswordInput">Enter Administrator Password:</label>
+          <div style="position:relative;">
+            <input type="password" id="modalPasswordInput" class="modal-input" style="padding-right:40px;" placeholder="Admin password" autocomplete="current-password" onkeydown="if(event.key==='Enter') executeDeletion()">
+            <button type="button" class="password-toggle-btn" onclick="togglePasswordVisibility()" title="Show/Hide Password">👁️</button>
+          </div>
+        </div>
+
+        <div id="modalErrorNotice" class="modal-error" style="display:none;"></div>
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn-base btn-primary" onclick="closeDeleteModal()" id="modalCancelBtn">Cancel</button>
+      <button class="btn-base btn-primary" onclick="goToStep1()" id="modalBackBtn" style="display:none;">← Back</button>
+      <button class="btn-base btn-danger" onclick="goToStep2()" id="modalNextBtn">Next: Enter Password →</button>
+      <button class="btn-base btn-danger" onclick="executeDeletion()" id="modalConfirmBtn" style="display:none;">🗑️ Permanently Delete</button>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -802,44 +1098,255 @@ async function cancelAllDownloads() {
   refresh();
 }
 
-async function deleteFile(id, name) {
-  if (!confirm('Permanently delete ' + name + ' from disk?')) return;
-  await fetch('/downloads/delete-file?id=' + encodeURIComponent(id), { method: 'POST' });
-  selectedIds.delete(id);
-  refresh();
+let currentDeleteTarget = null;
+
+function openDeleteModal(type, meta) {
+  currentDeleteTarget = { type: type, meta: meta || {} };
+  
+  const modal = document.getElementById('deleteModal');
+  const phraseInput = document.getElementById('modalPhraseInput');
+  const passwordInput = document.getElementById('modalPasswordInput');
+  const errorNotice = document.getElementById('modalErrorNotice');
+  const phraseGroup = document.getElementById('modalPhraseGroup');
+  const phraseLabel = document.getElementById('modalPhraseLabel');
+  const targetName = document.getElementById('modalTargetName');
+  const targetMeta = document.getElementById('modalTargetMeta');
+  const modalTitle = document.getElementById('modalTitle');
+  const modalSubtitle = document.getElementById('modalSubtitle');
+  const nextBtn = document.getElementById('modalNextBtn');
+  
+  errorNotice.style.display = 'none';
+  errorNotice.textContent = '';
+  passwordInput.value = '';
+  passwordInput.type = 'password';
+  phraseInput.value = '';
+  
+  if (type === 'file') {
+    modalTitle.textContent = 'Confirm File Deletion';
+    modalSubtitle.textContent = 'Step 1 of 2: Impact Review';
+    targetName.textContent = meta.name || 'Selected Media File';
+    targetMeta.textContent = fmtGb(meta.size) + ' will be removed from disk';
+    phraseGroup.style.display = 'none';
+    nextBtn.disabled = false;
+    nextBtn.textContent = 'Next: Enter Password →';
+  } else if (type === 'batch') {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    const selBytes = currentData.localFiles
+      .filter(function(f) { return selectedIds.has(f.id); })
+      .reduce(function(acc, f) { return acc + (Number(f.size) || 0); }, 0);
+    currentDeleteTarget.meta.ids = ids;
+    currentDeleteTarget.meta.bytes = selBytes;
+    
+    modalTitle.textContent = 'Confirm Batch Deletion';
+    modalSubtitle.textContent = 'Step 1 of 2: Impact Review';
+    targetName.textContent = ids.length + ' Selected Media Files';
+    targetMeta.textContent = fmtGb(selBytes) + ' total space to be freed';
+    phraseGroup.style.display = 'block';
+    phraseLabel.innerHTML = 'Type <code>DELETE</code> to confirm batch deletion:';
+    phraseInput.placeholder = 'DELETE';
+    nextBtn.disabled = true;
+    nextBtn.textContent = 'Next: Enter Password →';
+  } else if (type === 'show') {
+    modalTitle.textContent = 'Confirm Entire Show Deletion';
+    modalSubtitle.textContent = 'Step 1 of 2: Impact Review';
+    targetName.textContent = 'Show: ' + (meta.title || 'Selected Show');
+    targetMeta.textContent = (meta.count || 0) + ' files • ' + fmtGb(meta.bytes) + ' to be freed';
+    phraseGroup.style.display = 'block';
+    phraseLabel.innerHTML = 'Type <code>DELETE</code> to confirm deleting this show:';
+    phraseInput.placeholder = 'DELETE';
+    nextBtn.disabled = true;
+    nextBtn.textContent = 'Next: Enter Password →';
+  } else if (type === 'all') {
+    const total = currentData.stats ? currentData.stats.totalFiles : 0;
+    const bytes = currentData.stats ? currentData.stats.totalMediaBytes : 0;
+    if (!total || total === 0) {
+      alert('No downloaded files to delete.');
+      return;
+    }
+    currentDeleteTarget.meta.total = total;
+    currentDeleteTarget.meta.bytes = bytes;
+    
+    modalTitle.textContent = '🚨 DANGER: Wipe All Downloaded Media';
+    modalSubtitle.textContent = 'Step 1 of 2: Extreme Confirmation';
+    targetName.textContent = 'EVERY Downloaded Movie & Series (' + total + ' files)';
+    targetMeta.textContent = fmtGb(bytes) + ' across all storage folders';
+    phraseGroup.style.display = 'block';
+    phraseLabel.innerHTML = 'Type <code>DELETE ALL MEDIA</code> to confirm complete wipe:';
+    phraseInput.placeholder = 'DELETE ALL MEDIA';
+    nextBtn.disabled = true;
+    nextBtn.textContent = 'Next: Enter Password →';
+  }
+
+  goToStep1();
+  modal.style.display = 'flex';
+  if (phraseGroup.style.display !== 'none') {
+    setTimeout(function() { phraseInput.focus(); }, 120);
+  }
 }
 
-async function deleteShow(title, count, size) {
-  if (!confirm('Permanently delete all ' + count + ' files for "' + title + '" (' + fmtGb(size) + ') from disk?')) return;
-  await fetch('/downloads/delete-show?title=' + encodeURIComponent(title), { method: 'POST' });
-  if (activeFilter === 'show:' + title) activeFilter = 'all';
-  refresh();
+function checkPhraseMatch() {
+  if (!currentDeleteTarget) return;
+  const input = document.getElementById('modalPhraseInput');
+  const nextBtn = document.getElementById('modalNextBtn');
+  const val = input.value.trim();
+  
+  if (currentDeleteTarget.type === 'all') {
+    nextBtn.disabled = val !== 'DELETE ALL MEDIA';
+  } else if (currentDeleteTarget.type === 'batch' || currentDeleteTarget.type === 'show') {
+    nextBtn.disabled = val !== 'DELETE';
+  } else {
+    nextBtn.disabled = false;
+  }
 }
 
-async function deleteAllMedia() {
-  const total = currentData.stats ? currentData.stats.totalFiles : 0;
-  const bytes = currentData.stats ? currentData.stats.totalMediaBytes : 0;
-  if (!total || total === 0) {
-    alert('No downloaded files to delete.');
+function goToStep1() {
+  document.getElementById('modalStep1').style.display = 'block';
+  document.getElementById('modalStep2').style.display = 'none';
+  document.getElementById('modalBackBtn').style.display = 'none';
+  document.getElementById('modalConfirmBtn').style.display = 'none';
+  document.getElementById('modalCancelBtn').style.display = 'inline-flex';
+  document.getElementById('modalNextBtn').style.display = 'inline-flex';
+  document.getElementById('modalSubtitle').textContent = 'Step 1 of 2: Impact Assessment';
+  checkPhraseMatch();
+}
+
+function goToStep2() {
+  document.getElementById('modalStep1').style.display = 'none';
+  document.getElementById('modalStep2').style.display = 'block';
+  document.getElementById('modalBackBtn').style.display = 'inline-flex';
+  document.getElementById('modalConfirmBtn').style.display = 'inline-flex';
+  document.getElementById('modalNextBtn').style.display = 'none';
+  document.getElementById('modalSubtitle').textContent = 'Step 2 of 2: Administrator Authorization';
+  
+  const step2Meta = document.getElementById('modalStep2Meta');
+  if (currentDeleteTarget) {
+    if (currentDeleteTarget.type === 'file') {
+      step2Meta.textContent = currentDeleteTarget.meta.name + ' (' + fmtGb(currentDeleteTarget.meta.size) + ')';
+    } else if (currentDeleteTarget.type === 'batch') {
+      step2Meta.textContent = currentDeleteTarget.meta.ids.length + ' files (' + fmtGb(currentDeleteTarget.meta.bytes) + ')';
+    } else if (currentDeleteTarget.type === 'show') {
+      step2Meta.textContent = currentDeleteTarget.meta.title + ' (' + fmtGb(currentDeleteTarget.meta.bytes) + ')';
+    } else if (currentDeleteTarget.type === 'all') {
+      step2Meta.textContent = 'ALL ' + currentDeleteTarget.meta.total + ' files (' + fmtGb(currentDeleteTarget.meta.bytes) + ')';
+    }
+  }
+
+  const pwd = document.getElementById('modalPasswordInput');
+  pwd.value = '';
+  document.getElementById('modalErrorNotice').style.display = 'none';
+  setTimeout(function() { pwd.focus(); }, 120);
+}
+
+function closeDeleteModal() {
+  const modal = document.getElementById('deleteModal');
+  if (modal) modal.style.display = 'none';
+  currentDeleteTarget = null;
+}
+
+function handleModalBackdropClick(e) {
+  if (e.target && e.target.id === 'deleteModal') {
+    closeDeleteModal();
+  }
+}
+
+function togglePasswordVisibility() {
+  const pwd = document.getElementById('modalPasswordInput');
+  pwd.type = pwd.type === 'password' ? 'text' : 'password';
+}
+
+async function executeDeletion() {
+  if (!currentDeleteTarget) return;
+  const passwordInput = document.getElementById('modalPasswordInput');
+  const password = passwordInput.value;
+  const errorNotice = document.getElementById('modalErrorNotice');
+  const confirmBtn = document.getElementById('modalConfirmBtn');
+  
+  if (!password) {
+    errorNotice.style.display = 'block';
+    errorNotice.textContent = 'Please enter your administrator password.';
+    passwordInput.focus();
     return;
   }
-  if (!confirm('DANGER: Permanently delete ALL ' + total + ' downloaded files (' + fmtGb(bytes) + ') from local storage?\n\nThis action cannot be undone.')) return;
-  await fetch('/downloads/delete-all', { method: 'POST' });
-  selectedIds.clear();
-  activeFilter = 'all';
-  refresh();
+
+  errorNotice.style.display = 'none';
+  confirmBtn.disabled = true;
+  const prevBtnText = confirmBtn.textContent;
+  confirmBtn.textContent = '⏳ Deleting...';
+
+  try {
+    let res;
+    if (currentDeleteTarget.type === 'file') {
+      res = await fetch('/downloads/delete-file', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: currentDeleteTarget.meta.id, password: password })
+      });
+      if (res.ok) {
+        selectedIds.delete(currentDeleteTarget.meta.id);
+      }
+    } else if (currentDeleteTarget.type === 'batch') {
+      res = await fetch('/downloads/delete-batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: currentDeleteTarget.meta.ids, password: password })
+      });
+      if (res.ok) {
+        selectedIds.clear();
+      }
+    } else if (currentDeleteTarget.type === 'show') {
+      res = await fetch('/downloads/delete-show', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: currentDeleteTarget.meta.title, password: password })
+      });
+      if (res.ok && activeFilter === 'show:' + currentDeleteTarget.meta.title) {
+        activeFilter = 'all';
+      }
+    } else if (currentDeleteTarget.type === 'all') {
+      res = await fetch('/downloads/delete-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: password })
+      });
+      if (res.ok) {
+        selectedIds.clear();
+        activeFilter = 'all';
+      }
+    }
+
+    if (!res || !res.ok) {
+      const data = await res.json().catch(function() { return {}; });
+      errorNotice.style.display = 'block';
+      errorNotice.textContent = data.error || 'Failed to delete: Incorrect administrator password.';
+      confirmBtn.disabled = false;
+      confirmBtn.textContent = prevBtnText;
+      passwordInput.select();
+      return;
+    }
+
+    closeDeleteModal();
+    refresh();
+  } catch (err) {
+    errorNotice.style.display = 'block';
+    errorNotice.textContent = 'Network or server error occurred while deleting.';
+    confirmBtn.disabled = false;
+    confirmBtn.textContent = prevBtnText;
+  }
 }
 
-async function deleteSelected() {
-  const ids = Array.from(selectedIds);
-  if (ids.length === 0) return;
-  const selBytes = currentData.localFiles
-    .filter(function(f) { return selectedIds.has(f.id); })
-    .reduce(function(acc, f) { return acc + (Number(f.size) || 0); }, 0);
-  if (!confirm('Permanently delete ' + ids.length + ' selected files (' + fmtGb(selBytes) + ') from disk?')) return;
-  await fetch('/downloads/delete-batch?ids=' + encodeURIComponent(ids.join(',')), { method: 'POST' });
-  selectedIds.clear();
-  refresh();
+// Backward compatible aliases
+function deleteFile(id, name, size) {
+  openDeleteModal('file', { id: id, name: name, size: size || 0 });
+}
+function deleteShow(title, count, size) {
+  openDeleteModal('show', { title: title, count: count, bytes: size || 0 });
+}
+function deleteSelected() {
+  openDeleteModal('batch');
+}
+function deleteAllMedia() {
+  openDeleteModal('all');
 }
 
 function setFilter(filter) {
@@ -1125,7 +1632,7 @@ function renderFiles() {
           '<div class="file-size-badge">' + fmtGb(f.size) + '</div>' +
           '<div class="file-actions">' +
             openBtn +
-            '<button class="btn-base btn-danger btn-sm" onclick="deleteFile(\'' + escapeHtml(f.id) + '\', \'' + escapeHtml(filename) + '\')">🗑️ Delete</button>' +
+            '<button class="btn-base btn-danger btn-sm" onclick="deleteFile(\'' + escapeHtml(f.id) + '\', \'' + escapeHtml(filename) + '\', ' + (Number(f.size) || 0) + ')">🗑️ Delete</button>' +
           '</div>' +
         '</div>' +
       '</div>';
@@ -1143,7 +1650,7 @@ function renderFiles() {
       '<div class="file-size-badge">' + fmtGb(f.size) + '</div>' +
       '<div class="file-actions">' +
         openBtn +
-        '<button class="btn-base btn-danger btn-sm" onclick="deleteFile(\'' + escapeHtml(f.id) + '\', \'' + escapeHtml(filename) + '\')">🗑️ Delete</button>' +
+        '<button class="btn-base btn-danger btn-sm" onclick="deleteFile(\'' + escapeHtml(f.id) + '\', \'' + escapeHtml(filename) + '\', ' + (Number(f.size) || 0) + ')">🗑️ Delete</button>' +
       '</div>' +
     '</div>';
   }).join('');

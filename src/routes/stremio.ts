@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { createFallbackMediaToken, createStreamToken, createSessionToken, verifySessionToken } from '../lib/security.js';
+import { createFallbackMediaToken, createStreamToken, createSessionToken, verifySessionToken, verifyPassword } from '../lib/security.js';
 import { catalogPreview, fullMeta, streamDescription, streamName, streamTitle, streamResolution, streamSourceLabel, videoCodecLabel } from '../stremio/builders.js';
 import { matchesAddonAccessToken } from '../lib/addon-access.js';
 import { buildInfo } from '../lib/build-info.js';
@@ -1059,9 +1059,26 @@ export function registerStremioRoutes(app, database, settings, config, requester
         return reply.send({ ok: true });
     });
 
+    const verifyAdminPassword = async (password: unknown): Promise<boolean> => {
+        if (!password || typeof password !== 'string') return false;
+        const storedHash = settings.adminPasswordHash;
+        if (storedHash) {
+            return await verifyPassword(password, storedHash);
+        }
+        if (config.adminPassword) {
+            return password === config.adminPassword;
+        }
+        return false;
+    };
+
     app.post('/downloads/delete-file', async (request, reply) => {
         if (!checkDownloadsAuth(request, reply)) return reply.code(401).send({ error: 'Authentication required' });
-        const fileId = String(request.query?.id || '');
+        const body = (request.body || {}) as any;
+        const password = String(body.password || (request.query as any)?.password || '');
+        if (!(await verifyAdminPassword(password))) {
+            return reply.code(403).send({ error: 'Incorrect administrator password' });
+        }
+        const fileId = String(body.id || (request.query as any)?.id || '');
         const row = database.sqlite.prepare('SELECT * FROM media_files WHERE id=?').get(fileId);
         if (row) {
             deleteLocalFileRecord(database, row);
@@ -1072,11 +1089,16 @@ export function registerStremioRoutes(app, database, settings, config, requester
 
     app.post('/downloads/delete-batch', async (request, reply) => {
         if (!checkDownloadsAuth(request, reply)) return reply.code(401).send({ error: 'Authentication required' });
-        let ids = [];
-        if (request.query?.ids) {
-            ids = String(request.query.ids).split(',').map(s => s.trim()).filter(Boolean);
-        } else if (Array.isArray(request.body?.ids)) {
-            ids = request.body.ids;
+        const body = (request.body || {}) as any;
+        const password = String(body.password || (request.query as any)?.password || '');
+        if (!(await verifyAdminPassword(password))) {
+            return reply.code(403).send({ error: 'Incorrect administrator password' });
+        }
+        let ids: string[] = [];
+        if (Array.isArray(body.ids)) {
+            ids = body.ids;
+        } else if ((request.query as any)?.ids) {
+            ids = String((request.query as any).ids).split(',').map((s: string) => s.trim()).filter(Boolean);
         }
         let count = 0;
         for (const id of ids) {
@@ -1092,7 +1114,12 @@ export function registerStremioRoutes(app, database, settings, config, requester
 
     app.post('/downloads/delete-show', async (request, reply) => {
         if (!checkDownloadsAuth(request, reply)) return reply.code(401).send({ error: 'Authentication required' });
-        const title = String(request.query?.title || '').trim();
+        const body = (request.body || {}) as any;
+        const password = String(body.password || (request.query as any)?.password || '');
+        if (!(await verifyAdminPassword(password))) {
+            return reply.code(403).send({ error: 'Incorrect administrator password' });
+        }
+        const title = String(body.title || (request.query as any)?.title || '').trim();
         if (!title) return reply.code(400).send({ error: 'Missing title' });
         const rows = database.sqlite.prepare(`
             SELECT mf.* FROM media_files mf
@@ -1110,6 +1137,11 @@ export function registerStremioRoutes(app, database, settings, config, requester
 
     app.post('/downloads/delete-all', async (request, reply) => {
         if (!checkDownloadsAuth(request, reply)) return reply.code(401).send({ error: 'Authentication required' });
+        const body = (request.body || {}) as any;
+        const password = String(body.password || (request.query as any)?.password || '');
+        if (!(await verifyAdminPassword(password))) {
+            return reply.code(403).send({ error: 'Incorrect administrator password' });
+        }
         const rows = database.sqlite.prepare("SELECT * FROM media_files WHERE status='matched'").all();
         let count = 0;
         for (const row of rows) {
