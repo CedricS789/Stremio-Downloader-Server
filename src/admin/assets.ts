@@ -160,7 +160,77 @@ export function adminHtml(csrf: string): string {
 </section>
 
 </div><div class="form-actions"><button class="btn primary" type="submit">Save all settings</button></div></form><p class="tmdb">Metadata is matched automatically through Cinemeta. An optional TMDB key enables direct TMDB poster lookups.</p></section></main></div>
-  <dialog class="modal" id="fileModal" role="dialog" aria-modal="true" aria-labelledby="modalTitle"><div class="modal-card"><header class="modal-header"><div class="modal-heading"><div class="eyebrow">Media details</div><h3 id="modalTitle" tabindex="-1">File details</h3></div><button class="btn small modal-close" type="button" data-close aria-label="Close media details">Close</button></header><div class="modal-body" id="modalBody"></div><footer class="modal-footer" id="modalActions"></footer></div></dialog><div class="toast" id="toast" role="status" aria-live="polite"></div><script>${adminJs}</script></body></html>`;
+  <dialog class="modal" id="fileModal" role="dialog" aria-modal="true" aria-labelledby="modalTitle"><div class="modal-card"><header class="modal-header"><div class="modal-heading"><div class="eyebrow">Media details</div><h3 id="modalTitle" tabindex="-1">File details</h3></div><button class="btn small modal-close" type="button" data-close aria-label="Close media details">Close</button></header><div class="modal-body" id="modalBody"></div><footer class="modal-footer" id="modalActions"></footer></div></dialog>
+  <dialog class="modal" id="dangerModal" role="dialog" aria-modal="true" aria-labelledby="dangerModalTitle">
+    <div class="modal-card" style="width:min(520px, calc(100vw - 32px)); border-color:#6e2430; box-shadow:0 30px 80px rgba(0,0,0,0.95), 0 0 35px rgba(244,63,94,0.18);">
+      <header class="modal-header" style="background:#13080c; border-bottom:1px solid #4a151e;">
+        <div class="modal-heading">
+          <div class="eyebrow" style="color:#f43f5e; font-weight:800; letter-spacing:0.12em;">DANGER ZONE</div>
+          <h3 id="dangerModalTitle" style="color:#ffffff; font-size:18px;">Wipe All Downloaded Media</h3>
+        </div>
+        <button class="btn small modal-close" type="button" id="dangerModalClose" aria-label="Close dialog">✕</button>
+      </header>
+      <div class="modal-body" style="padding:22px;">
+        <div id="dangerStep1">
+          <div style="background:#1a070c; border:1px solid rgba(244,63,94,0.38); border-radius:12px; padding:15px 16px; margin-bottom:18px; display:flex; gap:12px; align-items:flex-start;">
+            <span style="font-size:22px; line-height:1; flex:0 0 auto;">🚨</span>
+            <div style="font-size:13px; color:#fecdd3; line-height:1.55;">
+              <strong style="color:#ffffff; display:block; margin-bottom:4px; font-size:14px;">Irreversible Storage Wipe</strong>
+              This will permanently delete <strong>ALL</strong> downloaded movies, TV series, episodes, and directory folders from your home server disk storage. This cannot be undone.
+            </div>
+          </div>
+          <div class="field" style="margin-bottom:0;">
+            <label for="dangerPhraseInput" style="display:block; color:#fda4af; font-size:12px; font-weight:750; margin-bottom:8px;">
+              Type <code style="background:#260a12; color:#fecdd3; padding:2px 7px; border-radius:5px; border:1px solid #6e2430; font-family:monospace; font-weight:800; font-size:12px;">DELETE ALL MEDIA</code> to proceed:
+            </label>
+            <input id="dangerPhraseInput" class="input" style="width:100%; font-family:monospace; font-size:14px; letter-spacing:0.04em; background:#050609; border-color:#4a151e; color:#ffffff;" placeholder="DELETE ALL MEDIA" autocomplete="off" spellcheck="false">
+          </div>
+        </div>
+        <div id="dangerStep2" style="display:none;">
+          <div style="background:#10141f; border:1px solid #1f2b42; border-radius:12px; padding:14px 16px; margin-bottom:18px;">
+            <div style="color:var(--muted); font-size:11px; text-transform:uppercase; font-weight:800; letter-spacing:0.08em; margin-bottom:4px;">Security Authorization</div>
+            <div style="color:#ffffff; font-size:13px; font-weight:600;">Confirm administrator credentials to authorize storage wipe:</div>
+          </div>
+          <div class="field" style="margin-bottom:0;">
+            <label for="dangerPasswordInput" style="display:block; color:#cbd5e1; font-size:12px; font-weight:750; margin-bottom:8px;">
+              Administrator Password
+            </label>
+            <div style="position:relative; display:flex; align-items:center;">
+              <input id="dangerPasswordInput" class="input" type="password" style="width:100%; padding-right:42px; background:#050609; border-color:var(--line); color:#ffffff;" placeholder="Enter admin password" autocomplete="current-password">
+              <button type="button" id="dangerPasswordToggle" style="position:absolute; right:10px; background:none; border:none; color:var(--dim); cursor:pointer; padding:4px; font-size:14px;" title="Show/hide password">👁️</button>
+            </div>
+          </div>
+        </div>
+        <div id="dangerModalError" class="notice error" style="margin-top:16px; display:none;"></div>
+      </div>
+      <footer class="modal-footer" style="background:#0d0f15; border-top:1px solid var(--line); display:flex; justify-content:space-between; align-items:center;">
+        <button class="btn" type="button" id="dangerCancelBtn">Cancel</button>
+        <div style="display:flex; gap:9px;">
+          <button class="btn" type="button" id="dangerBackBtn" style="display:none;">← Back</button>
+          <button class="btn danger" type="button" id="dangerNextBtn" disabled style="font-weight:750;">Next: Enter Password →</button>
+          <button class="btn danger" type="button" id="dangerExecuteBtn" style="display:none; font-weight:800;">🗑️ Permanently Wipe All Media</button>
+        </div>
+      </footer>
+    </div>
+  </dialog>
+  <dialog class="modal" id="confirmModal" role="dialog" aria-modal="true" aria-labelledby="confirmModalTitle">
+    <div class="modal-card" style="width:min(460px, calc(100vw - 32px));">
+      <header class="modal-header">
+        <div class="modal-heading">
+          <div class="eyebrow" id="confirmModalEyebrow">Confirmation</div>
+          <h3 id="confirmModalTitle">Confirm Action</h3>
+        </div>
+        <button class="btn small modal-close" type="button" id="confirmModalClose" aria-label="Close dialog">✕</button>
+      </header>
+      <div class="modal-body" style="padding:20px;">
+        <p id="confirmModalMessage" style="color:var(--text); font-size:13px; line-height:1.55; margin:0;"></p>
+      </div>
+      <footer class="modal-footer" style="display:flex; justify-content:flex-end; gap:9px;">
+        <button class="btn" type="button" id="confirmModalCancel">Cancel</button>
+        <button class="btn primary" type="button" id="confirmModalOk">Confirm</button>
+      </footer>
+    </div>
+  </dialog><div class="toast" id="toast" role="status" aria-live="polite"></div><script>${adminJs}</script></body></html>`;
 }
 
 export const adminJs = String.raw`
@@ -171,13 +241,47 @@ const fileModal=document.getElementById('fileModal'),modalBody=document.getEleme
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 async function api(url,options={}){const headers={'x-csrf-token':csrf,...options.headers};if(options.body!==undefined&&!(options.body instanceof FormData)&&!Object.keys(headers).some(key=>key.toLowerCase()==='content-type'))headers['content-type']='application/json';const response=await fetch(url,{...options,headers});if(response.status===401){location='/admin/login';throw new Error('Session expired')}const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data.error||'The request could not be completed.');return data}
 function toast(message){const node=document.getElementById('toast');node.textContent=message;node.classList.add('show');if(toastTimer)clearTimeout(toastTimer);toastTimer=setTimeout(()=>{node.classList.remove('show');toastTimer=null},2400)}
+function showConfirm({ title = 'Confirm Action', eyebrow = 'Confirmation', message, confirmText = 'Confirm', danger = false }){
+  return new Promise(resolve => {
+    const modal = document.getElementById('confirmModal');
+    const titleEl = document.getElementById('confirmModalTitle');
+    const eyeEl = document.getElementById('confirmModalEyebrow');
+    const msgEl = document.getElementById('confirmModalMessage');
+    const okBtn = document.getElementById('confirmModalOk');
+    const cancelBtn = document.getElementById('confirmModalCancel');
+    const closeBtn = document.getElementById('confirmModalClose');
+
+    titleEl.textContent = title;
+    eyeEl.textContent = eyebrow;
+    msgEl.textContent = message;
+    okBtn.textContent = confirmText;
+    okBtn.className = 'btn ' + (danger ? 'danger' : 'primary');
+
+    let resolved = false;
+    const finish = (result) => {
+      if (resolved) return;
+      resolved = true;
+      modal.close();
+      resolve(result);
+    };
+
+    okBtn.onclick = () => finish(true);
+    cancelBtn.onclick = () => finish(false);
+    closeBtn.onclick = () => finish(false);
+    modal.onclick = (e) => { if(e.target === modal) finish(false); };
+    modal.oncancel = (e) => { e.preventDefault(); finish(false); };
+
+    modal.showModal();
+    okBtn.focus();
+  });
+}
 function brandingIconUrl(){return '/addon-icon?v='+encodeURIComponent(state.settings.addonIconUpdatedAt||0)}
 function syncManifestUrl(){const form=document.getElementById('settingsForm'),output=document.getElementById('manifestUrl');if(!form||!output)return;const base=String(form.elements.baseUrl?.value||state.settings.baseUrl||'').trim().replace(/\/+$/,'');const accessPath=String(state.settings.addonAccessPath||'');output.value=base&&accessPath?base+accessPath+'/manifest.json':''}
 function refreshBuild(){const node=document.getElementById('buildVersion'),build=state.build||{};if(node)node.textContent='v'+String(build.version||'unknown')+' · '+String(build.revision||'dev')}
-async function regenerateAddonUrl(button){if(!window.confirm('Regenerate the secure addon URL? The current Stremio installation will stop working immediately.'))return;const original=button.textContent;button.disabled=true;button.textContent='Regenerating…';try{const data=await api('/admin/api/addon-access/regenerate',{method:'POST'});state.settings=data.settings;syncManifestUrl();toast('Secure addon URL regenerated. Reinstall it in Stremio.')}catch(err){toast(err.message||'Could not regenerate addon URL')}finally{button.disabled=false;button.textContent=original}}
+async function regenerateAddonUrl(button){if(!await showConfirm({title:'Regenerate Secure URL',eyebrow:'Security Action',message:'Regenerating the secure addon URL will cause any existing Stremio installation using this URL to stop working immediately. You will need to reinstall the addon in Stremio.',confirmText:'Regenerate URL',danger:true}))return;const original=button.textContent;button.disabled=true;button.textContent='Regenerating…';try{const data=await api('/admin/api/addon-access/regenerate',{method:'POST'});state.settings=data.settings;syncManifestUrl();toast('Secure addon URL regenerated. Reinstall it in Stremio.')}catch(err){toast(err.message||'Could not regenerate addon URL')}finally{button.disabled=false;button.textContent=original}}
 function refreshBranding(){refreshBuild();const url=brandingIconUrl(),name=state.settings.addonName||'Stremio Downloader Server';for(const id of ['sidebarBrandIcon','addonIconPreview']){const image=document.getElementById(id);if(image&&image.getAttribute('src')!==url){image.src=url;image.alt=name}}const brandName=document.getElementById('brandName');if(brandName)brandName.textContent=name;document.title=name}
 async function uploadAddonIcon(file){if(!file)return;if(file.size>2*1024*1024){toast('Icon must be 2 MB or smaller');return}const input=document.getElementById('addonIconFile'),body=new FormData();body.append('icon',file);try{const data=await api('/admin/api/branding/icon',{method:'POST',body});if(data.settings)state.settings=data.settings;refreshBranding();toast('Addon icon updated')}catch(err){toast(err.message||'Icon upload failed')}finally{if(input)input.value=''}}
-async function removeAddonIconNow(button){if(!window.confirm('Remove the custom icon and restore the Stremio Downloader Server default?'))return;const original=button.textContent;button.disabled=true;button.textContent='Removing…';try{const data=await api('/admin/api/branding/icon',{method:'DELETE'});if(data.settings)state.settings=data.settings;refreshBranding();toast('Default icon restored')}catch(err){toast(err.message||'Could not remove icon')}finally{button.disabled=false;button.textContent=original}}
+async function removeAddonIconNow(button){if(!await showConfirm({title:'Restore Default Icon',eyebrow:'Branding',message:'Remove the custom icon and restore the Stremio Downloader Server default?',confirmText:'Restore Default',danger:false}))return;const original=button.textContent;button.disabled=true;button.textContent='Removing…';try{const data=await api('/admin/api/branding/icon',{method:'DELETE'});if(data.settings)state.settings=data.settings;refreshBranding();toast('Default icon restored')}catch(err){toast(err.message||'Could not remove icon')}finally{button.disabled=false;button.textContent=original}}
 function duration(seconds){if(!seconds)return '—';const h=Math.floor(seconds/3600),m=Math.floor(seconds%3600/60),s=Math.round(seconds%60);return h?h+'h '+m+'m':m?m+'m '+s+'s':s+'s'}
 function statusBadge(file){const cls=file.status==='matched'?'good':file.status==='error'?'danger':'warn';const label=file.status==='matched'&&file.confidence!=null?Math.round(file.confidence*100)+'% match':file.status;return '<span class="badge '+cls+'">'+esc(label)+'</span>'}
 function listRow(file,action='Details'){return '<div class="list-row"><div class="file-icon">'+(file.libraryType==='movie'?'MOV':'TV')+'</div><div><div class="list-title">'+esc(file.displayTitle||file.parsedTitle||file.relativePath)+'</div><div class="list-meta">'+esc(file.relativePath)+' · '+esc(file.quality||file.height&&file.height+'p'||'Unknown quality')+'</div></div><button class="btn small" type="button" data-file="'+esc(file.id)+'">'+action+'</button></div>'}
@@ -200,7 +304,7 @@ async function loadBackups(){const request=++backupRequest,data=await api('/admi
 async function createBackup(button){const original=button.textContent;button.disabled=true;button.textContent='Creating…';try{state.backups=await api('/admin/api/backups',{method:'POST'});state.health=null;renderBackups();toast('Verified database backup created')}catch(err){toast(err.message||'Database backup could not be created');await loadBackups().catch(()=>{})}finally{button.disabled=false;button.textContent=original;renderBackups()}}
 async function loadScans(){const request=++scanRequest,data=await api('/admin/api/scans');if(request!==scanRequest)return;state.scan=data.current||null;state.logs=data.recent||[];renderScanOperations()}
 async function startScan(button){const mode=button.dataset.scan==='full'?'full':'changed';button.disabled=true;try{const data=await api('/admin/api/scan',{method:'POST',body:JSON.stringify({mode})});state.scan=data.scan||state.scan;state.health=null;renderScanOperations();toast(mode==='full'?'Full rescan started':'Changed-file scan started');await loadScans()}catch(err){toast(err.message||'Scan could not start');await loadScans().catch(()=>{})}finally{renderScanOperations()}}
-async function cancelScan(button){if(!window.confirm('Cancel the active library scan? Completed file updates are kept, but removal reconciliation will not run.'))return;button.disabled=true;button.textContent='Stopping…';try{const data=await api('/admin/api/scan/cancel',{method:'POST'});state.scan=data.scan||state.scan;state.health=null;renderScanOperations();toast('Scan cancellation requested');await loadScans()}catch(err){toast(err.message||'Scan could not be cancelled');await loadScans().catch(()=>{})}finally{renderScanOperations()}}
+async function cancelScan(button){if(!await showConfirm({title:'Cancel Library Scan',eyebrow:'Scan Control',message:'Cancel the active library scan? Completed file updates are kept, but removal reconciliation will not run.',confirmText:'Stop Scan',danger:true}))return;button.disabled=true;button.textContent='Stopping…';try{const data=await api('/admin/api/scan/cancel',{method:'POST'});state.scan=data.scan||state.scan;state.health=null;renderScanOperations();toast('Scan cancellation requested');await loadScans()}catch(err){toast(err.message||'Scan could not be cancelled');await loadScans().catch(()=>{})}finally{renderScanOperations()}}
 function activateSettingsPanel(id,{focus=false}={}){const tabs=[...document.querySelectorAll('[data-settings-tab]')],panels=[...document.querySelectorAll('[data-settings-panel]')],selected=panels.find(panel=>panel.dataset.settingsPanel===id)||panels[0];if(!selected)return;panels.forEach(panel=>{panel.hidden=panel!==selected});tabs.forEach(tab=>{const active=tab.dataset.settingsTab===selected.dataset.settingsPanel;tab.classList.toggle('active',active);tab.setAttribute('aria-selected',String(active));tab.tabIndex=active?0:-1;if(active&&focus)tab.focus()})}
 function switchView(id){document.querySelectorAll('.view').forEach(v=>v.classList.toggle('active',v.id===id));document.querySelectorAll('.nav button').forEach(b=>{const active=b.dataset.view===id;b.classList.toggle('active',active);if(active)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current')});if(id==='health')loadHealth().catch(err=>toast(err.message));if(id==='backups')loadBackups().catch(err=>toast(err.message));if(id==='logs')loadScans().catch(err=>toast(err.message));window.scrollTo({top:0,behavior:'smooth'})}
 function poster(url,alt){return url?'<img class="poster" src="'+esc(url)+'" alt="'+esc(alt)+' poster">':'<div class="poster-placeholder" aria-hidden="true">No poster</div>'}
@@ -223,49 +327,172 @@ function renderSearchResults(results,type){const box=document.getElementById('tm
 async function searchTmdb(){const file=modalState.file,input=document.getElementById('tmdbQuery'),status=document.getElementById('tmdbSearchStatus'),box=document.getElementById('tmdbResults'),searchButton=document.getElementById('tmdbSearch');if(!file||!input||!status||!box||!searchButton)return;const query=input.value.trim();if(!query){status.textContent='Enter a title before searching.';box.innerHTML='<div class="notice error" role="alert">A TMDB search title is required.</div>';input.focus();return}modalState.searchController?.abort();const controller=new AbortController();modalState.searchController=controller;const token=beginOperation();searchButton.textContent='Searching…';status.textContent='Searching TMDB…';box.innerHTML='<div class="modal-loading"><span>Searching for matches…</span></div>';try{const year=file.parsedYear?'&year='+encodeURIComponent(file.parsedYear):'';const data=await api('/admin/api/tmdb/search?type='+encodeURIComponent(file.libraryType)+'&query='+encodeURIComponent(query)+year,{signal:controller.signal});if(token!==modalState.operation||modalState.id!==file.id)return;renderSearchResults(data.results,file.libraryType)}catch(err){if(err.name==='AbortError')return;if(token===modalState.operation){status.textContent='Search failed.';box.innerHTML='<div class="notice error" role="alert">'+esc(err.message||'TMDB search failed. Please try again.')+'</div>'}}finally{if(modalState.searchController===controller)modalState.searchController=null;const activeButton=document.getElementById('tmdbSearch');if(activeButton)activeButton.textContent='Search TMDB';endOperation(token)}}
 async function applyMatch(id,provider,button){const file=modalState.file;if(!file)return;const token=beginOperation();setModalError('');button.textContent='Applying…';try{const data=await api('/admin/api/files/'+encodeURIComponent(file.id)+'/match',{method:'POST',body:JSON.stringify({type:file.libraryType,id,provider})});await refreshAfterAction(file.id,data.file);toast('Metadata match applied')}catch(err){setModalError(err.message||'The match could not be applied.');toast('Match failed')}finally{endOperation(token)}}
 async function saveOverrides(){const file=modalState.file;if(!file?.mediaItemId)return;const token=beginOperation();setModalError('');try{await api('/admin/api/items/'+encodeURIComponent(file.mediaItemId),{method:'PATCH',body:JSON.stringify({displayTitle:document.getElementById('editTitle').value,poster:document.getElementById('editPoster').value,background:document.getElementById('editBackground').value})});await refreshAfterAction(file.id);toast('Display overrides saved')}catch(err){setModalError(err.message||'Display overrides could not be saved.')}finally{endOperation(token)}}
-async function handleAction(button){const action=button.dataset.action,id=button.dataset.id;if(action==='test'){const preview=window.open('about:blank','_blank');if(preview)preview.opener=null;const token=beginOperation();setModalError('');try{const data=await api('/admin/api/files/'+encodeURIComponent(id)+'/stream',{method:'POST'});if(preview)preview.location.replace(data.url);else setModalError('The stream URL was created, but the browser blocked the new tab. Allow pop-ups for this admin page and try again.')}catch(err){preview?.close();setModalError(err.message||'The stream test could not be created.')}finally{endOperation(token)}return}const prompt=action==='ignore'?'Ignore this file? It will stay out of the catalog until you apply a match.':'Remove the current manual match? The file will return to Library.';if(!window.confirm(prompt))return;const token=beginOperation();setModalError('');try{const data=await api('/admin/api/files/'+encodeURIComponent(id)+'/'+action,{method:'POST'});await refreshAfterAction(id,data.file);toast(action==='ignore'?'File ignored':'Match removed')}catch(err){setModalError(err.message||'The action could not be completed.');toast('Action failed')}finally{endOperation(token)}}
+async function handleAction(button){const action=button.dataset.action,id=button.dataset.id;if(action==='test'){const preview=window.open('about:blank','_blank');if(preview)preview.opener=null;const token=beginOperation();setModalError('');try{const data=await api('/admin/api/files/'+encodeURIComponent(id)+'/stream',{method:'POST'});if(preview)preview.location.replace(data.url);else setModalError('The stream URL was created, but the browser blocked the new tab. Allow pop-ups for this admin page and try again.')}catch(err){preview?.close();setModalError(err.message||'The stream test could not be created.')}finally{endOperation(token)}return}const promptText=action==='ignore'?'Ignore this file? It will stay out of the catalog until you apply a match.':'Remove the current manual match? The file will return to Library.';if(!await showConfirm({title:action==='ignore'?'Ignore Media File':'Remove Match',eyebrow:'Catalog Management',message:promptText,confirmText:action==='ignore'?'Ignore File':'Remove Match',danger:action==='ignore'}))return;const token=beginOperation();setModalError('');try{const data=await api('/admin/api/files/'+encodeURIComponent(id)+'/'+action,{method:'POST'});await refreshAfterAction(id,data.file);toast(action==='ignore'?'File ignored':'Match removed')}catch(err){setModalError(err.message||'The action could not be completed.');toast('Action failed')}finally{endOperation(token)}}
 async function copyText(id,label){const node=document.getElementById(id),value=node&&'value'in node?String(node.value||''):node?.textContent||'';try{if(navigator.clipboard?.writeText)await navigator.clipboard.writeText(value);else{const area=document.createElement('textarea');area.value=value;area.style.position='fixed';area.style.opacity='0';document.body.appendChild(area);area.select();document.execCommand('copy');area.remove()}toast(label||'Copied')}catch{toast('Copy failed. Select the text and copy it manually.')}}
-document.addEventListener('click',async e=>{const target=e.target.closest('button');if(!target)return;if(target.dataset.view)switchView(target.dataset.view);else if(target.dataset.viewGo)switchView(target.dataset.viewGo);else if(target.dataset.settingsTab)activateSettingsPanel(target.dataset.settingsTab,{focus:true});else if(target.dataset.refreshHealth!==undefined)refreshHealth(target);else if(target.dataset.refreshBackups!==undefined)loadBackups().catch(err=>toast(err.message));else if(target.dataset.createBackup!==undefined)createBackup(target);else if(target.dataset.close)closeModal();else if(target.dataset.file)openFile(target.dataset.file,target);else if(target.dataset.retryFile)openFile(target.dataset.retryFile,target);else if(target.dataset.scan)startScan(target);else if(target.dataset.cancelScan!==undefined)cancelScan(target);else if(target.id==='changeAddonIcon')document.getElementById('addonIconFile')?.click();else if(target.id==='removeAddonIcon')removeAddonIconNow(target);else if(target.id==='adminWipeAllMediaBtn')wipeAllMediaAction(target);else if(target.id==='tmdbSearch')searchTmdb();else if(target.dataset.applyMatch)applyMatch(target.dataset.applyMatch,target.dataset.provider,target);else if(target.dataset.action)handleAction(target);else if(target.dataset.changeMatch!==undefined){document.getElementById('tmdbQuery')?.focus();document.getElementById('tmdbQuery')?.scrollIntoView({block:'center'})}else if(target.dataset.saveOverrides!==undefined)saveOverrides();else if(target.dataset.copy)copyText(target.dataset.copy,target.dataset.copyLabel)});
+document.addEventListener('click',async e=>{const target=e.target.closest('button');if(!target)return;if(target.dataset.view)switchView(target.dataset.view);else if(target.dataset.viewGo)switchView(target.dataset.viewGo);else if(target.dataset.settingsTab)activateSettingsPanel(target.dataset.settingsTab,{focus:true});else if(target.dataset.refreshHealth!==undefined)refreshHealth(target);else if(target.dataset.refreshBackups!==undefined)loadBackups().catch(err=>toast(err.message));else if(target.dataset.createBackup!==undefined)createBackup(target);else if(target.dataset.close)closeModal();else if(target.dataset.file)openFile(target.dataset.file,target);else if(target.dataset.retryFile)openFile(target.dataset.retryFile,target);else if(target.dataset.scan)startScan(target);else if(target.dataset.cancelScan!==undefined)cancelScan(target);else if(target.id==='changeAddonIcon')document.getElementById('addonIconFile')?.click();else if(target.id==='removeAddonIcon')removeAddonIconNow(target);else if(target.id==='adminWipeAllMediaBtn')openDangerModal();else if(target.id==='tmdbSearch')searchTmdb();else if(target.dataset.applyMatch)applyMatch(target.dataset.applyMatch,target.dataset.provider,target);else if(target.dataset.action)handleAction(target);else if(target.dataset.changeMatch!==undefined){document.getElementById('tmdbQuery')?.focus();document.getElementById('tmdbQuery')?.scrollIntoView({block:'center'})}else if(target.dataset.saveOverrides!==undefined)saveOverrides();else if(target.dataset.copy)copyText(target.dataset.copy,target.dataset.copyLabel)});
 document.getElementById('librarySearch').addEventListener('input',renderLibrary);document.getElementById('libraryType').addEventListener('change',renderLibrary);
 const addonIconFile=document.getElementById('addonIconFile');addonIconFile?.addEventListener('change',e=>uploadAddonIcon(e.target.files?.[0]));
 document.getElementById('regenerateAddonUrl')?.addEventListener('click',e=>regenerateAddonUrl(e.currentTarget));
 const settingsForm=document.getElementById('settingsForm');settingsForm.addEventListener('input',e=>{if(e.target?.id!=='addonIconFile')settingsDirty=true;if(e.target?.name==='baseUrl')syncManifestUrl()});settingsForm.addEventListener('change',e=>{if(e.target?.id==='addonIconFile')return;settingsDirty=true});settingsForm.addEventListener('invalid',e=>{const panel=e.target.closest?.('[data-settings-panel]');if(panel)activateSettingsPanel(panel.dataset.settingsPanel)},true);settingsForm.addEventListener('submit',async e=>{e.preventDefault();const data=Object.fromEntries(new FormData(e.target));try{state.settings=(await api('/admin/api/settings',{method:'PUT',body:JSON.stringify(data)})).settings;state.health=null;settingsDirty=false;fillSettings(true);toast('Settings saved')}catch(err){toast(err.message)}});
 document.querySelector('.settings-nav')?.addEventListener('keydown',e=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;const tabs=[...document.querySelectorAll('[data-settings-tab]')],current=tabs.indexOf(document.activeElement);if(current<0)return;e.preventDefault();const next=e.key==='Home'?0:e.key==='End'?tabs.length-1:(current+(e.key==='ArrowRight'?1:-1)+tabs.length)%tabs.length;activateSettingsPanel(tabs[next].dataset.settingsTab,{focus:true})});
 fileModal.addEventListener('close',cleanupModal);fileModal.addEventListener('cancel',e=>{e.preventDefault();closeModal()});fileModal.addEventListener('click',e=>{if(e.target===fileModal)closeModal()});fileModal.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target?.id==='tmdbQuery'){e.preventDefault();if(!modalState.busy)searchTmdb();return}if(e.key==='Escape'){e.preventDefault();closeModal();return}if(e.key!=='Tab')return;const focusable=[...fileModal.querySelectorAll('button:not([disabled]),input:not([disabled]),select:not([disabled]),summary,[tabindex]:not([tabindex="-1"])')].filter(node=>node.offsetParent!==null||node===document.activeElement);if(!focusable.length)return;const first=focusable[0],last=focusable[focusable.length-1];if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus()}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus()}});
-async function wipeAllMediaAction(btn){
-  const phrase=prompt("🚨 DANGER: This will permanently delete ALL downloaded movies and TV series from your home server disk storage.\n\nType 'DELETE ALL MEDIA' to proceed:");
-  if(phrase!=='DELETE ALL MEDIA'){
-    if(phrase!==null)toast('Action cancelled: Confirmation phrase did not match.');
-    return;
-  }
-  const password=prompt("Enter Administrator Password to authorize complete wipe:");
+
+function openDangerModal(){
+  const modal=document.getElementById('dangerModal');
+  const step1=document.getElementById('dangerStep1');
+  const step2=document.getElementById('dangerStep2');
+  const phraseInput=document.getElementById('dangerPhraseInput');
+  const passwordInput=document.getElementById('dangerPasswordInput');
+  const errorEl=document.getElementById('dangerModalError');
+  const nextBtn=document.getElementById('dangerNextBtn');
+  const execBtn=document.getElementById('dangerExecuteBtn');
+  const backBtn=document.getElementById('dangerBackBtn');
+
+  step1.style.display='block';
+  step2.style.display='none';
+  phraseInput.value='';
+  passwordInput.value='';
+  passwordInput.type='password';
+  errorEl.style.display='none';
+  errorEl.textContent='';
+  nextBtn.disabled=true;
+  nextBtn.style.display='inline-flex';
+  execBtn.disabled=false;
+  execBtn.textContent='🗑️ Permanently Wipe All Media';
+  execBtn.style.display='none';
+  backBtn.style.display='none';
+
+  modal.showModal();
+  setTimeout(()=>phraseInput.focus(),60);
+}
+
+function closeDangerModal(){
+  const modal=document.getElementById('dangerModal');
+  modal?.close();
+}
+
+function checkDangerPhrase(){
+  const phraseInput=document.getElementById('dangerPhraseInput');
+  const nextBtn=document.getElementById('dangerNextBtn');
+  const isMatch=phraseInput.value.trim()==='DELETE ALL MEDIA';
+  nextBtn.disabled=!isMatch;
+  return isMatch;
+}
+
+function goToDangerStep2(){
+  if(!checkDangerPhrase()) return;
+  const step1=document.getElementById('dangerStep1');
+  const step2=document.getElementById('dangerStep2');
+  const passwordInput=document.getElementById('dangerPasswordInput');
+  const nextBtn=document.getElementById('dangerNextBtn');
+  const execBtn=document.getElementById('dangerExecuteBtn');
+  const backBtn=document.getElementById('dangerBackBtn');
+  const errorEl=document.getElementById('dangerModalError');
+
+  step1.style.display='none';
+  step2.style.display='block';
+  nextBtn.style.display='none';
+  execBtn.style.display='inline-flex';
+  backBtn.style.display='inline-flex';
+  errorEl.style.display='none';
+  errorEl.textContent='';
+  setTimeout(()=>passwordInput.focus(),60);
+}
+
+function goToDangerStep1(){
+  const step1=document.getElementById('dangerStep1');
+  const step2=document.getElementById('dangerStep2');
+  const nextBtn=document.getElementById('dangerNextBtn');
+  const execBtn=document.getElementById('dangerExecuteBtn');
+  const backBtn=document.getElementById('dangerBackBtn');
+  const errorEl=document.getElementById('dangerModalError');
+  const phraseInput=document.getElementById('dangerPhraseInput');
+
+  step1.style.display='block';
+  step2.style.display='none';
+  nextBtn.style.display='inline-flex';
+  execBtn.style.display='none';
+  backBtn.style.display='none';
+  errorEl.style.display='none';
+  checkDangerPhrase();
+  setTimeout(()=>phraseInput.focus(),60);
+}
+
+async function executeWipeMedia(){
+  const passwordInput=document.getElementById('dangerPasswordInput');
+  const password=passwordInput.value.trim();
+  const errorEl=document.getElementById('dangerModalError');
+  const execBtn=document.getElementById('dangerExecuteBtn');
+  const backBtn=document.getElementById('dangerBackBtn');
+
   if(!password){
-    toast('Action cancelled: Password required.');
+    errorEl.textContent='Please enter your administrator password.';
+    errorEl.style.display='block';
+    passwordInput.focus();
     return;
   }
-  btn.disabled=true;
-  const prev=btn.textContent;
-  btn.textContent='⏳ Wiping media...';
+
+  errorEl.style.display='none';
+  execBtn.disabled=true;
+  backBtn.disabled=true;
+  execBtn.textContent='⏳ Wiping all media...';
+
   try{
     const res=await fetch('/downloads/delete-all',{
       method:'POST',
-      headers:{'Content-Type':'application/json'},
+      headers:{'Content-Type':'application/json','x-csrf-token':csrf},
       body:JSON.stringify({password})
     });
     const data=await res.json().catch(()=>({}));
     if(!res.ok){
-      toast(data.error||'Failed: Incorrect administrator password.');
-    }else{
-      toast('All media files successfully wiped from disk storage.');
-      await load();
+      errorEl.textContent=data.error||'Failed: Incorrect administrator password.';
+      errorEl.style.display='block';
+      execBtn.disabled=false;
+      backBtn.disabled=false;
+      execBtn.textContent='🗑️ Permanently Wipe All Media';
+      passwordInput.focus();
+      passwordInput.select();
+      return;
     }
+    closeDangerModal();
+    toast('✅ All media files successfully wiped from disk storage.');
+    await load();
   }catch(err){
-    toast('Error connecting to server: '+err.message);
-  }finally{
-    btn.disabled=false;
-    btn.textContent=prev;
+    errorEl.textContent='Error connecting to server: '+(err.message||'Unknown error');
+    errorEl.style.display='block';
+    execBtn.disabled=false;
+    backBtn.disabled=false;
+    execBtn.textContent='🗑️ Permanently Wipe All Media';
   }
 }
+
+document.getElementById('dangerModalClose')?.addEventListener('click',()=>closeDangerModal());
+document.getElementById('dangerCancelBtn')?.addEventListener('click',()=>closeDangerModal());
+document.getElementById('dangerBackBtn')?.addEventListener('click',()=>goToDangerStep1());
+document.getElementById('dangerNextBtn')?.addEventListener('click',()=>goToDangerStep2());
+document.getElementById('dangerExecuteBtn')?.addEventListener('click',()=>executeWipeMedia());
+
+document.getElementById('dangerPhraseInput')?.addEventListener('input',()=>checkDangerPhrase());
+document.getElementById('dangerPhraseInput')?.addEventListener('keydown',e=>{
+  if(e.key==='Enter'){
+    e.preventDefault();
+    goToDangerStep2();
+  }
+});
+document.getElementById('dangerPasswordInput')?.addEventListener('keydown',e=>{
+  if(e.key==='Enter'){
+    e.preventDefault();
+    executeWipeMedia();
+  }
+});
+document.getElementById('dangerPasswordToggle')?.addEventListener('click',()=>{
+  const pwd=document.getElementById('dangerPasswordInput');
+  pwd.type=pwd.type==='password'?'text':'password';
+});
+
+const dangerModalEl=document.getElementById('dangerModal');
+dangerModalEl?.addEventListener('click',e=>{if(e.target===dangerModalEl)closeDangerModal()});
+dangerModalEl?.addEventListener('cancel',e=>{e.preventDefault();closeDangerModal()});
 async function initialize(){await load()}
 initialize().catch(err=>toast(err.message));setInterval(()=>load().catch(()=>{}),15000);setInterval(()=>{if(document.getElementById('backups')?.classList.contains('active')||state.backups?.running)loadBackups().catch(()=>{})},5000);setInterval(()=>{if(state.scan||document.getElementById('logs')?.classList.contains('active'))loadScans().catch(()=>{})},2000);
 `;

@@ -1108,6 +1108,27 @@
   </div>
 </div>
 
+<!-- SIMPLE ACTION CONFIRMATION MODAL -->
+<div id="actionConfirmModal" class="modal-overlay" style="display:none;" onclick="if(event.target.id==='actionConfirmModal')closeActionConfirm(false)">
+  <div class="modal-dialog" style="max-width:440px;">
+    <div class="modal-header">
+      <div class="modal-icon-badge" id="actionConfirmIcon">⚠️</div>
+      <div style="flex:1; min-width:0;">
+        <h3 class="modal-title" id="actionConfirmTitle">Confirm Action</h3>
+        <p class="modal-subtitle" id="actionConfirmSubtitle">Please confirm to proceed</p>
+      </div>
+      <button class="modal-close-btn" onclick="closeActionConfirm(false)" aria-label="Close dialog">✕</button>
+    </div>
+    <div class="modal-body" style="padding:16px 20px;">
+      <p id="actionConfirmMessage" style="color:var(--text); font-size:13px; line-height:1.55; margin:0;"></p>
+    </div>
+    <div class="modal-footer" style="padding:14px 20px; display:flex; justify-content:flex-end; gap:8px;">
+      <button class="btn-base btn-primary" onclick="closeActionConfirm(false)">Cancel</button>
+      <button class="btn-base btn-danger" id="actionConfirmBtn" onclick="closeActionConfirm(true)">Confirm</button>
+    </div>
+  </div>
+</div>
+
 <script>
 let currentData = { items: [], localFiles: [], shows: [], stats: {} };
 let selectedIds = new Set();
@@ -1129,19 +1150,41 @@ function formatDate(ts) {
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+let actionConfirmResolve = null;
+function showActionConfirm(title, message, confirmBtnText = 'Confirm', isDanger = true, icon = '⚠️') {
+  return new Promise(function(resolve) {
+    actionConfirmResolve = resolve;
+    document.getElementById('actionConfirmTitle').textContent = title;
+    document.getElementById('actionConfirmMessage').textContent = message;
+    document.getElementById('actionConfirmIcon').textContent = icon;
+    const btn = document.getElementById('actionConfirmBtn');
+    btn.textContent = confirmBtnText;
+    btn.className = 'btn-base ' + (isDanger ? 'btn-danger' : 'btn-primary');
+    document.getElementById('actionConfirmModal').style.display = 'flex';
+  });
+}
+
+function closeActionConfirm(val) {
+  document.getElementById('actionConfirmModal').style.display = 'none';
+  if (actionConfirmResolve) {
+    actionConfirmResolve(val);
+    actionConfirmResolve = null;
+  }
+}
+
 async function rescanLibrary() {
   await fetch('/downloads/rescan', { method: 'POST', credentials: 'include' });
   refresh();
 }
 
 async function cancelDl(key) {
-  if (!confirm('Cancel active download: ' + key + '?')) return;
+  if (!await showActionConfirm('Cancel Download', 'Cancel active background download for: ' + key + '?', 'Cancel Download', true, '🛑')) return;
   await fetch('/downloads/cancel?key=' + encodeURIComponent(key), { method: 'POST', credentials: 'include' });
   refresh();
 }
 
 async function cancelAllDownloads() {
-  if (!confirm('Cancel ALL active background downloads?')) return;
+  if (!await showActionConfirm('Cancel All Downloads', 'Cancel ALL active background downloads across the server?', 'Cancel All', true, '🛑')) return;
   await fetch('/downloads/cancel?all=true', { method: 'POST', credentials: 'include' });
   refresh();
 }
@@ -1209,7 +1252,7 @@ function openDeleteModal(type, meta) {
     const total = currentData.stats ? currentData.stats.totalFiles : 0;
     const bytes = currentData.stats ? currentData.stats.totalMediaBytes : 0;
     if (!total || total === 0) {
-      alert('No downloaded files to delete.');
+      showActionConfirm('No Files Available', 'There are no downloaded media files on disk storage to delete.', 'OK', false, 'ℹ️');
       return;
     }
     currentDeleteTarget.meta.total = total;
