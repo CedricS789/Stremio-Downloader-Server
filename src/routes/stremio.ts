@@ -1323,19 +1323,16 @@ export function registerStremioRoutes(app, database, settings, config, requester
                 ? `${showTitle} ${epCode}.mkv`
                 : (showTitle ? `${showTitle}${file.item_year ? ` (${file.item_year})` : ''}.mkv` : path.basename(file.relative_path));
 
-            const streamTitleLine = [res, detailsLine].filter(Boolean).join(' • ');
-            const streamDescription = [
-                detailsLine,
-                playTag
-            ].filter(Boolean).join('\n');
-
+            const addonName = settings.addonName || 'Stremio Downloader Server';
             const lanBase = (settings.lanBaseUrl || String(process.env.LAN_BASE_URL || '')).trim().replace(/\/+$/, '');
+            const localDesc = `🏠 LAN Direct • ${res}\n${detailsLine ? detailsLine + ' • ' : ''}Direct Play`;
+            const remoteDesc = `🌐 Remote • ${res}\n${detailsLine ? detailsLine + ' • ' : ''}Direct Play`;
+
             const localStreams = [];
             if (lanBase) {
                 localStreams.push({
-                    name: '🏠 LAN Direct',
-                    title: streamTitleLine,
-                    description: streamDescription,
+                    name: addonName,
+                    description: localDesc,
                     url: `${lanBase}/media/${encodeURIComponent(token)}`,
                     subtitles: subtitles.map((subtitle: any) => ({
                         id: subtitle.id,
@@ -1344,15 +1341,13 @@ export function registerStremioRoutes(app, database, settings, config, requester
                     })),
                     behaviorHints: {
                         bingeGroup: `nuvi-flow:${file.media_item_id}`,
-                        filename: cleanFilename,
                         videoSize: file.size
                     }
                 });
             }
             localStreams.push({
-                name: '🌐 Remote',
-                title: streamTitleLine,
-                description: streamDescription,
+                name: addonName,
+                description: remoteDesc,
                 url: `${settings.baseUrl}/media/${encodeURIComponent(token)}`,
                 subtitles: subtitles.map((subtitle: any) => ({
                     id: subtitle.id,
@@ -1361,7 +1356,6 @@ export function registerStremioRoutes(app, database, settings, config, requester
                 })),
                 behaviorHints: {
                     bingeGroup: `nuvi-flow:${file.media_item_id}`,
-                    filename: cleanFilename,
                     videoSize: file.size
                 }
             });
