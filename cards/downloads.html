@@ -1664,8 +1664,9 @@ function renderFileItem(f, isMobile) {
         : '<span class="badge ' + (isMovie ? 'badge-movie' : 'badge-ep') + '">' + epLabel + '</span>')
     : '';
   const filename = f.relative_path ? f.relative_path.split('/').pop() : 'Unknown file';
-  const quality = f.quality ? f.quality + 'p' : '';
-  const dateStr = formatDate(f.added_at);
+  const rawQuality = f.quality ? String(f.quality).trim() : '';
+  const quality = rawQuality ? (/p$/i.test(rawQuality) ? rawQuality.toLowerCase() : rawQuality + 'p') : '';
+  const dateStr = f.added_at ? 'Downloaded ' + formatDate(f.added_at) : '';
 
   const metaContent = '<span class="file-play-icon">▶</span> ' + escapeHtml(filename) + (quality ? ' &bull; ' + quality : '') + (dateStr ? ' &bull; ' + dateStr : '');
   const metaHtml = stremioUrl
@@ -1751,7 +1752,6 @@ function renderFiles() {
             '<span class="show-chevron">▼</span>' +
             '<span class="show-icon">📺</span>' +
             '<span class="show-title">' + escapeHtml(group.title) + '</span>' +
-            (group.year ? '<span class="show-year">(' + group.year + ')</span>' : '') +
             '<span class="show-badge">' + group.files.length + ' ep' + (group.files.length === 1 ? '' : 's') + ' &bull; ' + fmtGb(group.totalBytes) + '</span>' +
           '</div>' +
           '<div class="show-group-actions" onclick="event.stopPropagation()">' +
