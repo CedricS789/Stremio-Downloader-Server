@@ -56,6 +56,49 @@ function formatGb(bytes) {
     return `${Math.round(mb)} MB`;
 }
 
+function wrapLines(items: (string | null | undefined)[], maxLen = 25): string[] {
+    const lines: string[] = [];
+    for (const item of items) {
+        if (!item) continue;
+        const text = String(item).trim();
+        if (!text) continue;
+        if (text.length <= maxLen) {
+            lines.push(text);
+            continue;
+        }
+        if (text.includes(' • ')) {
+            const parts = text.split(' • ');
+            let current = '';
+            for (const part of parts) {
+                if (!current) {
+                    current = part;
+                } else if ((current + ' • ' + part).length <= maxLen) {
+                    current += ' • ' + part;
+                } else {
+                    lines.push(current);
+                    current = part;
+                }
+            }
+            if (current) lines.push(current);
+        } else {
+            const words = text.split(' ');
+            let current = '';
+            for (const word of words) {
+                if (!current) {
+                    current = word;
+                } else if ((current + ' ' + word).length <= maxLen) {
+                    current += ' ' + word;
+                } else {
+                    lines.push(current);
+                    current = word;
+                }
+            }
+            if (current) lines.push(current);
+        }
+    }
+    return lines;
+}
+
 function formatProgressBar(downloaded, total, startedAt) {
     const pct = total > 0 ? Math.min(99, Math.round((downloaded / total) * 100)) : 0;
     const filled = Math.max(0, Math.min(8, Math.round(pct / 12.5)));
@@ -1289,6 +1332,8 @@ export function registerStremioRoutes(app, database, settings, config, requester
         });
         deviceCapabilities.touchDevice(deviceIdentity.id, deviceIdentity.source);
 
+        const addonName = settings.addonName || 'Stremio Downloader Server';
+
         // 1. Build playable streams for already-downloaded local files
         const streams = files.flatMap((file) => {
             const expiry = Date.now() + settings.streamTokenExpiryHours * 60 * 60 * 1000;
@@ -1323,15 +1368,23 @@ export function registerStremioRoutes(app, database, settings, config, requester
                 ? `${showTitle} ${epCode}.mkv`
                 : (showTitle ? `${showTitle}${file.item_year ? ` (${file.item_year})` : ''}.mkv` : path.basename(file.relative_path));
 
-            const addonName = settings.addonName || 'Stremio Downloader Server';
             const lanBase = (settings.lanBaseUrl || String(process.env.LAN_BASE_URL || '')).trim().replace(/\/+$/, '');
-            const localDesc = `🏠 LAN Direct • ${res}\n${detailsLine ? detailsLine + ' • ' : ''}Direct Play`;
-            const remoteDesc = `🌐 Remote • ${res}\n${detailsLine ? detailsLine + ' • ' : ''}Direct Play`;
+            const localDesc = wrapLines([
+                `🏠 LAN Direct • ${res}`,
+                detailsLine,
+                playTag
+            ]).join('\n');
+            const remoteDesc = wrapLines([
+                `🌐 Remote • ${res}`,
+                detailsLine,
+                playTag
+            ]).join('\n');
 
             const localStreams = [];
             if (lanBase) {
                 localStreams.push({
                     name: addonName,
+                    title: localDesc,
                     description: localDesc,
                     url: `${lanBase}/media/${encodeURIComponent(token)}`,
                     subtitles: subtitles.map((subtitle: any) => ({
@@ -1348,6 +1401,7 @@ export function registerStremioRoutes(app, database, settings, config, requester
             }
             localStreams.push({
                 name: addonName,
+                title: remoteDesc,
                 description: remoteDesc,
                 url: `${settings.baseUrl}/media/${encodeURIComponent(token)}`,
                 subtitles: subtitles.map((subtitle: any) => ({
@@ -1371,7 +1425,7 @@ export function registerStremioRoutes(app, database, settings, config, requester
                 const delKey = `movie:${id}`;
                 const armed = isDeleteArmed(delKey);
                 streams.push({
-                    name: 'Stremio Downloader Server',
+                    name: addonName,
                     description: armed
                         ? `⚠️ CONFIRM DELETE Movie\nClick to delete now (3m)`
                         : `🗑️ Delete Movie (${formatGb(totalBytes)})\nClick once to arm`,
@@ -1383,13 +1437,13 @@ export function registerStremioRoutes(app, database, settings, config, requester
                 const active = activeDownloads.get(`movie:${id}`);
                 if (active) {
                     streams.push({
-                        name: 'Stremio Downloader Server',
+                        name: addonName,
                         description: `⏳ Downloading Movie\n${formatProgressBar(active.downloadedBytes, active.totalBytes, active.startedAt)}`,
                         url: `${settings.baseUrl}/addon/${encodeURIComponent(accessToken)}/download/status/${encodeURIComponent(id)}`,
                         behaviorHints: { bingeGroup: `nuvi-flow:dl:${id}` }
                     });
                     streams.push({
-                        name: 'Stremio Downloader Server',
+                        name: addonName,
                         description: `🛑 Cancel Movie Download\nStop active download`,
                         url: `${settings.baseUrl}/addon/${encodeURIComponent(accessToken)}/cancel/movie/${encodeURIComponent(id)}`,
                         behaviorHints: { bingeGroup: `nuvi-flow:cancel:${id}` }
@@ -1397,7 +1451,7 @@ export function registerStremioRoutes(app, database, settings, config, requester
                 }
                 else {
                     streams.push({
-                        name: 'Stremio Downloader Server',
+                        name: addonName,
                         description: `⬇️ Download Movie\nChoose quality & source`,
                         externalUrl: `${settings.baseUrl}/downloads/choose?token=${encodeURIComponent(accessToken)}&type=movie&id=${encodeURIComponent(id)}&mode=movie`,
                         behaviorHints: { bingeGroup: `nuvi-flow:choose:movie:${id}` }
@@ -1416,7 +1470,7 @@ export function registerStremioRoutes(app, database, settings, config, requester
                 const epBytes = files.reduce((acc, f) => acc + (Number(f.size) || 0), 0);
                 const armedEp = isDeleteArmed(epKey);
                 streams.push({
-                    name: 'Stremio Downloader Server',
+                    name: addonName,
                     description: armedEp
                         ? `⚠️ CONFIRM DELETE S${ss}E${ee}\nClick to delete now (3m)`
                         : `🗑️ Delete S${ss}E${ee} (${formatGb(epBytes)})\nClick once to arm`,
@@ -1428,13 +1482,13 @@ export function registerStremioRoutes(app, database, settings, config, requester
                 const activeEp = activeDownloads.get(epKey);
                 if (activeEp) {
                     streams.push({
-                        name: 'Stremio Downloader Server',
+                        name: addonName,
                         description: `⏳ Downloading S${ss}E${ee}\n${formatProgressBar(activeEp.downloadedBytes, activeEp.totalBytes, activeEp.startedAt)}`,
                         url: `${settings.baseUrl}/addon/${encodeURIComponent(accessToken)}/download/status/${encodeURIComponent(id)}`,
                         behaviorHints: { bingeGroup: `nuvi-flow:dl:ep:${id}` }
                     });
                     streams.push({
-                        name: 'Stremio Downloader Server',
+                        name: addonName,
                         description: `🛑 Cancel S${ss}E${ee} Download\nStop active download`,
                         url: `${settings.baseUrl}/addon/${encodeURIComponent(accessToken)}/cancel/episode/${encodeURIComponent(id)}`,
                         behaviorHints: { bingeGroup: `nuvi-flow:cancel:ep:${id}` }
@@ -1442,7 +1496,7 @@ export function registerStremioRoutes(app, database, settings, config, requester
                 }
                 else {
                     streams.push({
-                        name: 'Stremio Downloader Server',
+                        name: addonName,
                         description: `⬇️ Download S${ss}E${ee}\nChoose quality & source`,
                         externalUrl: `${settings.baseUrl}/downloads/choose?token=${encodeURIComponent(accessToken)}&type=series&id=${encodeURIComponent(id)}&mode=episode`,
                         behaviorHints: { bingeGroup: `nuvi-flow:choose:ep:${id}` }
@@ -1462,13 +1516,13 @@ export function registerStremioRoutes(app, database, settings, config, requester
             if (activeDownloads.has(seasonKey)) {
                 const activeSeason = activeDownloads.get(seasonKey);
                 streams.push({
-                    name: 'Stremio Downloader Server',
+                    name: addonName,
                     description: `⏳ Downloading Season ${parsedSeries.season}\n${activeSeason.filename}`,
                     url: `${settings.baseUrl}/addon/${encodeURIComponent(accessToken)}/download/status/${encodeURIComponent(id)}`,
                     behaviorHints: { bingeGroup: `nuvi-flow:dl:season:${id}` }
                 });
                 streams.push({
-                    name: 'Stremio Downloader Server',
+                    name: addonName,
                     description: `🛑 Cancel Season ${parsedSeries.season} Download\nStop remaining queued eps`,
                     url: `${settings.baseUrl}/addon/${encodeURIComponent(accessToken)}/cancel/season/${encodeURIComponent(id)}`,
                     behaviorHints: { bingeGroup: `nuvi-flow:cancel:season:${id}` }
@@ -1476,7 +1530,7 @@ export function registerStremioRoutes(app, database, settings, config, requester
             }
             else if (remainingEps > 0) {
                 streams.push({
-                    name: 'Stremio Downloader Server',
+                    name: addonName,
                     description: `⬇️ Download Season ${parsedSeries.season}\nChoose season release`,
                     externalUrl: `${settings.baseUrl}/downloads/choose?token=${encodeURIComponent(accessToken)}&type=series&id=${encodeURIComponent(id)}&mode=season`,
                     behaviorHints: { bingeGroup: `nuvi-flow:choose:season:${id}` }
@@ -1487,7 +1541,7 @@ export function registerStremioRoutes(app, database, settings, config, requester
                 const seasonLocalBytes = localSeasonRows.reduce((acc, r) => acc + (Number(r.size) || 0), 0);
                 const armedSeason = isDeleteArmed(seasonKey);
                 streams.push({
-                    name: 'Stremio Downloader Server',
+                    name: addonName,
                     description: armedSeason
                         ? `⚠️ CONFIRM DELETE Season ${parsedSeries.season}\nClick to delete now (3m)`
                         : `🗑️ Delete Season ${parsedSeries.season} (${formatGb(seasonLocalBytes)})\n${localSeasonRows.length} eps • Click to arm`,
@@ -1498,7 +1552,7 @@ export function registerStremioRoutes(app, database, settings, config, requester
         }
 
         streams.push({
-            name: 'Stremio Downloader Server',
+            name: addonName,
             description: '📁 Open Downloads\nDownloads & Storage',
             externalUrl: `${settings.baseUrl}/downloads?token=${encodeURIComponent(accessToken)}`,
             behaviorHints: { bingeGroup: 'nuvi-flow:open:downloads' }
