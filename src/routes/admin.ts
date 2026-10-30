@@ -115,7 +115,25 @@ const adminFileSelect = `SELECT mf.*,mi.display_title,mi.stremio_id,mi.title ite
   FROM media_files mf LEFT JOIN media_items mi ON mi.id=mf.media_item_id`;
 
 function sessionFor(request: FastifyRequest, config: AppConfig): AdminSession | null {
-  return verifySessionToken(request.cookies[COOKIE_NAME], config.sessionSecret);
+  const candidateTokens: string[] = [];
+  const cookie = request.cookies[COOKIE_NAME];
+  if (cookie) {
+    if (Array.isArray(cookie)) candidateTokens.push(...cookie);
+    else candidateTokens.push(cookie);
+  }
+  if (typeof request.headers.cookie === 'string') {
+    const matches = request.headers.cookie.matchAll(/(?:^|;\s*)nuviflow_admin=([^;]+)/g);
+    for (const m of matches) {
+      if (m[1]) candidateTokens.push(decodeURIComponent(m[1]));
+    }
+  }
+  for (const token of candidateTokens) {
+    if (typeof token === 'string' && token.trim()) {
+      const session = verifySessionToken(token.trim(), config.sessionSecret);
+      if (session) return session;
+    }
+  }
+  return null;
 }
 
 function requireAdmin(config: AppConfig, csrf = false) {
@@ -307,18 +325,12 @@ export function registerAdminRoutes(
   systemDiagnostics: SystemDiagnosticsService
 ): void {
   app.get('/admin/login', async (request, reply) => {
-    const nextUrl = String((request.query as any)?.next || '/downloads').startsWith('/')
-      ? String((request.query as any)?.next || '/downloads')
-      : '/downloads';
+    let nextUrl = String((request.query as any)?.next || '/downloads').trim();
+    if (!nextUrl.startsWith('/') || nextUrl.startsWith('/admin/login')) {
+      nextUrl = '/downloads';
+    }
     const session = sessionFor(request, config);
     if (session) {
-      const currentCookie = request.cookies[COOKIE_NAME];
-      if (currentCookie) {
-        reply.setCookie(COOKIE_NAME, currentCookie, {
-          path: '/', httpOnly: true, sameSite: 'lax', secure: settings.baseUrl.startsWith('https://'), maxAge: 12 * 60 * 60
-        });
-      }
-      reply.clearCookie(COOKIE_NAME, { path: '/admin' });
       return reply.redirect(nextUrl);
     }
     return reply.type('text/html; charset=utf-8').send(loginHtml('', nextUrl));
@@ -329,9 +341,10 @@ export function registerAdminRoutes(
     const storedHash = settings.adminPasswordHash;
     const valid = typeof body?.username === 'string' && typeof body?.password === 'string'
       && body.username === settings.adminUsername && Boolean(storedHash) && await verifyPassword(body.password, storedHash!);
-    const nextUrl = String(body?.next || (request.query as any)?.next || '/downloads').startsWith('/')
-      ? String(body?.next || (request.query as any)?.next || '/downloads')
-      : '/downloads';
+    let nextUrl = String(body?.next || (request.query as any)?.next || '/downloads').trim();
+    if (!nextUrl.startsWith('/') || nextUrl.startsWith('/admin/login')) {
+      nextUrl = '/downloads';
+    }
     if (!valid) return reply.code(401).type('text/html; charset=utf-8').send(loginHtml('The username or password is incorrect.', nextUrl));
     const { token } = createSessionToken(body.username!, config.sessionSecret);
     reply.clearCookie(COOKIE_NAME, { path: '/admin' });

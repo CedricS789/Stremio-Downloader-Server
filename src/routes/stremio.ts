@@ -593,14 +593,23 @@ export function registerStremioRoutes(app, database, settings, config, requester
         return false;
     };
 
-    const checkDownloadsAuth = (request, reply) => {
-        let sessionCookie = request.cookies?.nuviflow_admin;
-        if (!sessionCookie && typeof request.headers.cookie === 'string') {
-            const match = request.headers.cookie.match(/(?:^|;\s*)nuviflow_admin=([^;]+)/);
-            if (match) sessionCookie = decodeURIComponent(match[1]);
+    const checkDownloadsAuth = (request: any, reply: any) => {
+        const candidateTokens: string[] = [];
+        const cookie = request.cookies?.nuviflow_admin;
+        if (cookie) {
+            if (Array.isArray(cookie)) candidateTokens.push(...cookie);
+            else candidateTokens.push(cookie);
         }
-        if (sessionCookie && verifySessionToken(sessionCookie, config.sessionSecret)) {
-            return true;
+        if (typeof request.headers.cookie === 'string') {
+            const matches = request.headers.cookie.matchAll(/(?:^|;\s*)nuviflow_admin=([^;]+)/g);
+            for (const m of matches) {
+                if (m[1]) candidateTokens.push(decodeURIComponent(m[1]));
+            }
+        }
+        for (const token of candidateTokens) {
+            if (typeof token === 'string' && token.trim() && verifySessionToken(token.trim(), config.sessionSecret)) {
+                return true;
+            }
         }
         const queryToken = request.query?.token;
         if (queryToken && typeof queryToken === 'string' && matchesAddonAccessToken(queryToken, settings.addonAccessToken)) {
@@ -752,6 +761,7 @@ export function registerStremioRoutes(app, database, settings, config, requester
 
     app.get('/downloads', async (request, reply) => {
         if (!checkDownloadsAuth(request, reply)) {
+            reply.clearCookie('nuviflow_admin', { path: '/' });
             reply.clearCookie('nuviflow_admin', { path: '/admin' });
             return reply.redirect('/admin/login?next=/downloads');
         }
@@ -765,6 +775,7 @@ export function registerStremioRoutes(app, database, settings, config, requester
 
     app.get('/downloads/choose', async (request, reply) => {
         if (!checkDownloadsAuth(request, reply)) {
+            reply.clearCookie('nuviflow_admin', { path: '/' });
             reply.clearCookie('nuviflow_admin', { path: '/admin' });
             const nextUrl = String(request.raw.url || '/downloads');
             return reply.redirect(`/admin/login?next=${encodeURIComponent(nextUrl)}`);
@@ -1254,46 +1265,39 @@ export function registerStremioRoutes(app, database, settings, config, requester
             database.sqlite.prepare('INSERT OR IGNORE INTO stream_tokens (jti,media_file_id,expires_at,created_at,revoked) VALUES (?,?,?,?,0)')
                 .run(payload.jti, file.id, payload.exp, Date.now());
             const subtitles = database.sqlite.prepare('SELECT * FROM external_subtitles WHERE media_file_id=? ORDER BY language').all(file.id);
-            const fname = path.basename(file.relative_path);
-            const rawBase = fname.replace(/\.[a-z0-9]{2,4}$/i, '');
-            const cleanFname = rawBase.replace(/[\._]/g, ' ').replace(/\s+/g, ' ').trim();
-            let shortFname = cleanFname;
-            if (shortFname.length > 26) {
-                const epMatch = shortFname.match(/^(.*?[sS]\d+[eE]\d+(?:-[eE]\d+)?)/);
-                if (epMatch && epMatch[1].length <= 26) {
-                    shortFname = epMatch[1];
-                } else {
-                    shortFname = `${shortFname.slice(0, 23).trimEnd()}...`;
-                }
-            }
-
             const res = streamResolution(file) || '1080p';
             const releaseType = streamSourceLabel(file.source) || videoCodecLabel(file.video_codec) || '';
             const sizeStr = formatGb(file.size);
             const detailsLine = [releaseType, sizeStr].filter(Boolean).join(' • ');
 
+            let playTag = 'Direct Play';
+            if (requestedEpisode?.season !== undefined && requestedEpisode?.episode !== undefined) {
+                const ss = String(requestedEpisode.season).padStart(2, '0');
+                const ee = String(requestedEpisode.episode).padStart(2, '0');
+                playTag = `S${ss}E${ee} • Direct Play`;
+            } else if (file.season !== undefined && file.episode_start !== undefined) {
+                const ss = String(file.season).padStart(2, '0');
+                const ee = String(file.episode_start).padStart(2, '0');
+                playTag = `S${ss}E${ee} • Direct Play`;
+            }
+
             const lanBase = (settings.lanBaseUrl || String(process.env.LAN_BASE_URL || '')).trim().replace(/\/+$/, '');
             const lanDescription = [
                 `🏠 LAN Direct • ${res}`,
                 detailsLine,
-                shortFname
+                playTag
             ].filter(Boolean).join('\n');
-            const remoteDescription = lanBase
-                ? [
-                    `🌐 Remote • ${res}`,
-                    detailsLine,
-                    shortFname
-                  ].filter(Boolean).join('\n')
-                : [
-                    res,
-                    detailsLine,
-                    shortFname
-                  ].filter(Boolean).join('\n');
+            const remoteDescription = [
+                `🌐 Remote • ${res}`,
+                detailsLine,
+                playTag
+            ].filter(Boolean).join('\n');
 
             const localStreams = [];
             if (lanBase) {
                 localStreams.push({
                     name: 'Stremio Downloader Server',
+                    title: lanDescription,
                     description: lanDescription,
                     url: `${lanBase}/media/${encodeURIComponent(token)}`,
                     subtitles: subtitles.map((subtitle: any) => ({
@@ -1310,6 +1314,7 @@ export function registerStremioRoutes(app, database, settings, config, requester
             }
             localStreams.push({
                 name: 'Stremio Downloader Server',
+                title: remoteDescription,
                 description: remoteDescription,
                 url: `${settings.baseUrl}/media/${encodeURIComponent(token)}`,
                 subtitles: subtitles.map((subtitle: any) => ({
