@@ -1471,10 +1471,7 @@ function renderPills() {
     banner.style.display = 'flex';
     banner.className = 'active-filter-banner';
     banner.innerHTML = '<div>Filtered by show: <b>' + escapeHtml(title) + '</b> &bull; ' + count + ' file' + (count === 1 ? '' : 's') + ' (' + fmtGb(bytes) + ')</div>' +
-      '<div style="display:flex; gap:8px;">' +
-        '<button class="btn-base btn-primary btn-sm" onclick="clearFilter()">Show All</button>' +
-        '<button class="btn-base btn-danger btn-sm" onclick="deleteShow(\'' + escapeHtml(title) + '\', ' + count + ', ' + bytes + ')">🗑️ Delete Entire Show</button>' +
-      '</div>';
+      '<button class="btn-base btn-primary btn-sm" onclick="clearFilter()">Show All</button>';
   } else if (activeFilter !== 'all') {
     banner.style.display = 'flex';
     banner.className = 'active-filter-banner';
