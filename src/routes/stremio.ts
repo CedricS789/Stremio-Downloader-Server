@@ -1341,6 +1341,7 @@ export function registerStremioRoutes(app, database, settings, config, requester
                     })),
                     behaviorHints: {
                         bingeGroup: `nuvi-flow:${file.media_item_id}`,
+                        filename: cleanFilename,
                         videoSize: file.size
                     }
                 });
@@ -1356,6 +1357,7 @@ export function registerStremioRoutes(app, database, settings, config, requester
                 })),
                 behaviorHints: {
                     bingeGroup: `nuvi-flow:${file.media_item_id}`,
+                    filename: cleanFilename,
                     videoSize: file.size
                 }
             });

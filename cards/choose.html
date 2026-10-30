@@ -6,45 +6,45 @@
 <title>Choose Quality & Release — Stremio Downloader Server</title>
 <style>
   :root {
-    --bg: #07090e;
-    --bg-gradient: radial-gradient(circle at 50% -10%, rgba(14, 165, 233, 0.12) 0%, transparent 50%), #07090e;
-    --surface: #0e121b;
-    --surface-raised: #141926;
-    --surface-hover: #1a2234;
-    --border: #1e2638;
-    --border-hover: #2b364e;
-    --border-active: #0ea5e9;
+    --bg: #000000;
+    --bg-gradient: radial-gradient(ellipse at 50% -15%, rgba(14, 165, 233, 0.08) 0%, transparent 55%), #000000;
+    --surface: #0a0b10;
+    --surface-raised: #12141d;
+    --surface-hover: #181c28;
+    --border: #1f2637;
+    --border-hover: #2e394f;
+    --border-active: #38bdf8;
 
-    --text: #f8fafc;
-    --text-muted: #94a3b8;
-    --text-dim: #64748b;
+    --text: #ffffff;
+    --text-muted: #cbd5e1;
+    --text-dim: #94a3b8;
 
     --accent: #0ea5e9;
     --accent-hover: #38bdf8;
-    --accent-glow: rgba(14, 165, 233, 0.28);
-    --accent-gradient: linear-gradient(135deg, #0284c7 0%, #0ea5e9 50%, #06b6d4 100%);
-    --accent-surface: rgba(14, 165, 233, 0.12);
-    --accent-border: rgba(14, 165, 233, 0.35);
+    --accent-glow: rgba(56, 189, 248, 0.28);
+    --accent-gradient: linear-gradient(135deg, #0284c7 0%, #0ea5e9 50%, #38bdf8 100%);
+    --accent-surface: rgba(14, 165, 233, 0.14);
+    --accent-border: rgba(56, 189, 248, 0.38);
 
     --emerald: #10b981;
-    --emerald-bg: rgba(16, 185, 129, 0.12);
-    --emerald-border: rgba(16, 185, 129, 0.35);
+    --emerald-bg: rgba(16, 185, 129, 0.14);
+    --emerald-border: rgba(16, 185, 129, 0.38);
 
     --amber: #f59e0b;
-    --amber-bg: rgba(245, 158, 11, 0.12);
-    --amber-border: rgba(245, 158, 11, 0.35);
+    --amber-bg: rgba(245, 158, 11, 0.14);
+    --amber-border: rgba(245, 158, 11, 0.38);
 
     --blue: #38bdf8;
-    --blue-bg: rgba(56, 189, 248, 0.12);
-    --blue-border: rgba(56, 189, 248, 0.35);
+    --blue-bg: rgba(56, 189, 248, 0.14);
+    --blue-border: rgba(56, 189, 248, 0.38);
 
     --purple: #a855f7;
-    --purple-bg: rgba(168, 85, 247, 0.12);
-    --purple-border: rgba(168, 85, 247, 0.35);
+    --purple-bg: rgba(168, 85, 247, 0.14);
+    --purple-border: rgba(168, 85, 247, 0.38);
 
     --rose: #f43f5e;
-    --rose-bg: rgba(244, 63, 94, 0.12);
-    --rose-border: rgba(244, 63, 94, 0.35);
+    --rose-bg: rgba(244, 63, 94, 0.14);
+    --rose-border: rgba(244, 63, 94, 0.38);
   }
 
   * { box-sizing: border-box; }
@@ -82,7 +82,7 @@
 
   /* Top Nav */
   .top-nav {
-    background: rgba(7, 9, 14, 0.88);
+    background: rgba(0, 0, 0, 0.92);
     backdrop-filter: blur(14px);
     border-bottom: 1px solid var(--border);
     position: sticky;
@@ -159,7 +159,7 @@
     height: 128px;
     border-radius: 10px;
     object-fit: cover;
-    background: #141926;
+    background: #0d0f15;
     flex-shrink: 0;
     box-shadow: 0 8px 20px rgba(0, 0, 0, 0.5);
     border: 1px solid rgba(255, 255, 255, 0.08);
@@ -312,7 +312,7 @@
   .badge-bluray { background: rgba(59, 130, 246, 0.12); color: #93c5fd; border: 1px solid rgba(59, 130, 246, 0.35); }
   .badge-web { background: var(--emerald-bg); color: #6ee7b7; border: 1px solid var(--emerald-border); }
   .badge-cached { background: var(--emerald-bg); color: #34d399; border: 1px solid var(--emerald-border); font-weight: 800; }
-  .badge-size { background: #090c14; color: #fff; font-weight: 800; border: 1px solid var(--border); }
+  .badge-size { background: #050609; color: #fff; font-weight: 800; border: 1px solid var(--border); }
   .badge-tag { background: rgba(255, 255, 255, 0.05); color: #cbd5e1; font-weight: 600; border: 1px solid rgba(255, 255, 255, 0.08); }
   .badge-lang { background: rgba(255, 255, 255, 0.08); color: #f1f5f9; font-weight: 600; }
 
@@ -371,11 +371,11 @@
   }
   .ep-pill.is-downloaded { border-color: var(--emerald-border); }
   .ep-pill-local {
-    font-size: 9px;
+    font-size: 11px;
     font-weight: 800;
     color: #34d399;
     background: var(--emerald-bg);
-    padding: 1px 5px;
+    padding: 1px 6px;
     border-radius: 4px;
   }
 
@@ -401,9 +401,9 @@
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15), 0 0.5px 0 #0369a1 !important;
   }
   .btn-download:disabled {
-    background: #181d29;
-    color: #64748b;
-    border-color: #242c3d;
+    background: #12151e;
+    color: #94a3b8;
+    border-color: var(--border);
     box-shadow: none;
     cursor: not-allowed;
     transform: none !important;
@@ -457,7 +457,7 @@
     .top-nav { padding: 10px 12px; }
     .top-nav-inner { gap: 10px; }
     .brand-text h1 { font-size: 15px; }
-    .nav-btn { padding: 6px 10px; font-size: 11px; }
+    .nav-btn { padding: 7px 11px; font-size: 12px; }
 
     .media-banner {
       flex-direction: column;
