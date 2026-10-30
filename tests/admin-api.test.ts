@@ -1,0 +1,855 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { loadConfig } from '../src/config.js';
+import { buildApp, type BuiltApp } from '../src/server.js';
+import type { MediaFileRow } from '../src/types.js';
+
+describe('admin media detail API', () => {
+  let built: BuiltApp;
+  let directory: string;
+  let cookie: string;
+  let csrf: string;
+
+  beforeEach(async () => {
+    directory = fs.mkdtempSync(path.join(os.tmpdir(), 'zpm-admin-test-'));
+    const config = loadConfig({
+      PORT: '60500', BASE_URL: 'http://localhost:60500', DATABASE_PATH: path.join(directory, 'test.db'),
+      MOVIES_PATH: directory, TV_PATH: directory, ADMIN_USERNAME: 'admin', ADMIN_PASSWORD: 'safe-test-password',
+      SESSION_SECRET: 'test-session-secret-at-least-thirty-two-chars',
+      STREAM_SECRET: 'test-stream-secret-at-least-thirty-two-chars',
+      SCAN_ON_STARTUP: 'false', WATCH_MEDIA: 'false', LOG_LEVEL: 'silent'
+    });
+    built = await buildApp(config);
+    const now = Date.now();
+    built.database.sqlite.prepare(`INSERT INTO media_items (id,type,stremio_id,tmdb_id,imdb_id,title,year,description,created_at,updated_at)
+      VALUES ('item1','movie','tt1234567',123,'tt1234567','Example Movie',2024,'A matched movie.',?,?)`).run(now, now);
+    built.database.sqlite.prepare(`INSERT INTO media_files (
+      id,library_type,absolute_path,relative_path,size,mtime_ms,duration_seconds,bitrate,video_codec,audio_codec,width,height,
+      audio_channels,audio_languages_json,subtitle_tracks_json,probe_json,parsed_title,parsed_year,quality,
+      media_item_id,confidence,status,added_at,updated_at,last_seen_at
+    ) VALUES ('file1','movie',?,?,?,?,120.5,8500000,'h264','aac',1920,1080,6,'["eng"]','[]','{}','Example Movie',2024,'1080p','item1',.99,'matched',?,?,?)`)
+      .run(path.join(directory, 'Example Movie (2024).mp4'), 'Example Movie (2024).mp4', 1000, now, now, now, now);
+    await built.app.ready();
+
+    const login = await built.app.inject({
+      method: 'POST', url: '/admin/login', headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      payload: 'username=admin&password=safe-test-password'
+    });
+    cookie = String(login.headers['set-cookie']).split(';')[0]!;
+    const page = await built.app.inject({ method: 'GET', url: '/admin', headers: { cookie } });
+    csrf = page.body.match(/meta name="csrf-token" content="([^"]+)"/)?.[1] || '';
+  });
+
+  afterEach(async () => {
+    await built.app.close();
+    built.database.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  });
+
+  function request(method: 'GET' | 'POST' | 'PUT' | 'PATCH', url: string, payload?: unknown) {
+    return built.app.inject({ method, url, headers: { cookie, 'x-csrf-token': csrf }, payload });
+  }
+
+  it('returns build identity and can revoke the secure addon URL', async () => {
+    const before = await request('GET', '/admin/api/state');
+    expect(before.statusCode).toBe(200);
+    expect(before.json().build).toMatchObject({ version: '1.1.1' });
+
+    const oldPath = before.json().settings.addonAccessPath as string;
+    expect(oldPath).toMatch(/^\/addon\/[A-Za-z0-9_-]{43}$/);
+    expect((await built.app.inject({
+      method: 'GET',
+      url: `${oldPath}/manifest.json`
+    })).statusCode).toBe(200);
+
+    const regenerated = await request(
+      'POST',
+      '/admin/api/addon-access/regenerate'
+    );
+    expect(regenerated.statusCode).toBe(200);
+    const newPath = regenerated.json().settings.addonAccessPath as string;
+    expect(newPath).not.toBe(oldPath);
+    expect((await built.app.inject({
+      method: 'GET',
+      url: `${oldPath}/manifest.json`
+    })).statusCode).toBe(404);
+    expect((await built.app.inject({
+      method: 'GET',
+      url: `${newPath}/manifest.json`
+    })).statusCode).toBe(200);
+  });
+
+  it('returns sanitized live playback activity to authenticated admins', async () => {
+    const file = built.database.sqlite.prepare(
+      'SELECT * FROM media_files WHERE id=?'
+    ).get('file1') as MediaFileRow;
+    built.deviceCapabilities.touchDevice(
+      'device_1234567890abcdef12345678',
+      'explicit'
+    );
+    const transfer = built.playbackActivity.beginDirect({
+      requestScope: 'private-stream-token-id',
+      deviceId: 'device_1234567890abcdef12345678',
+      file,
+      authorizationExpiresAt: Date.now() + 60_000
+    });
+
+    const unauthorized = await built.app.inject({
+      method: 'GET',
+      url: '/admin/api/activity'
+    });
+    expect(unauthorized.statusCode).toBe(401);
+
+    const response = await request('GET', '/admin/api/activity');
+    expect(response.statusCode).toBe(200);
+    expect(response.json().activity).toMatchObject([{
+      playbackId: transfer.playbackId,
+      title: 'Example Movie',
+      mediaType: 'movie',
+      deviceLabel: 'Device 12345678',
+      provider: 'nuvi-flow',
+      route: 'direct_file',
+      state: 'streaming',
+      stoppable: false,
+      source: {
+        kind: 'local',
+        height: 1080,
+        videoCodec: 'h264',
+        audioCodec: 'aac'
+      },
+      target: {
+        height: 1080,
+        videoCodec: 'h264',
+        audioCodec: 'aac'
+      }
+    }]);
+    expect(response.json().operations).toMatchObject({
+      silo: {
+        activeSessions: 0,
+        pendingSessions: 0,
+        activeStarts: 0,
+        queuedStarts: 0,
+        maxConcurrentStarts: 2,
+        maxQueuedStarts: 4
+      },
+      fallback: { active: 0, transfers: 0 }
+    });
+    expect(response.json().outcomes).toMatchObject([{
+      playbackId: transfer.playbackId,
+      title: 'Example Movie',
+      deviceLabel: 'Device 12345678',
+      provider: 'nuvi-flow',
+      route: 'direct_file',
+      code: 'delivery_observed',
+      failureDomain: 'none',
+      capabilityEvidence: false
+    }]);
+    expect(response.body).not.toContain('private-stream-token-id');
+    expect(response.body).not.toContain(file.absolute_path);
+    expect(response.body).not.toContain('upstream');
+
+    transfer.finish();
+  });
+
+  it('returns authenticated, cached, and sanitized system diagnostics', async () => {
+    built.settings.set('siloEnabled', 'true');
+    built.settings.set('siloUrl', 'http://private-silo.internal:8080');
+    built.settings.set('siloApiKey', 'private-silo-api-key');
+    built.settings.set('siloProfileId', 'profile-1');
+    built.systemDiagnostics.invalidate();
+    const testConnection = vi.spyOn(built.silo, 'testConnection')
+      .mockResolvedValue({
+        health: { status: 'ok', server_name: 'Test Silo', server_id: 'secret-server-id' },
+        profiles: [{ id: 'profile-1', name: 'Living room', primary: true }]
+      });
+
+    expect((await built.app.inject({
+      method: 'GET', url: '/admin/api/system-health'
+    })).statusCode).toBe(401);
+
+    const refreshed = await request(
+      'GET',
+      '/admin/api/system-health?refresh=1'
+    );
+    expect(refreshed.statusCode).toBe(200);
+    expect(refreshed.json()).toMatchObject({
+      status: 'degraded',
+      build: { version: '1.1.1' },
+      operations: {
+        scanner: { running: false },
+        silo: {
+          activeSessions: 0,
+          queuedStarts: 0,
+          maxConcurrentStarts: 2
+        },
+        fallback: { active: 0, transfers: 0 }
+      },
+      checks: expect.arrayContaining([
+        expect.objectContaining({ id: 'database', status: 'healthy' }),
+        expect.objectContaining({ id: 'movies_root', status: 'healthy' }),
+        expect.objectContaining({ id: 'silo', status: 'healthy' }),
+        expect.objectContaining({ id: 'fallback_addon', status: 'disabled' })
+      ])
+    });
+    expect(testConnection).toHaveBeenCalledTimes(1);
+
+    const cached = await request('GET', '/admin/api/system-health');
+    expect(cached.statusCode).toBe(200);
+    expect(cached.json().generatedAt).toBe(refreshed.json().generatedAt);
+    expect(testConnection).toHaveBeenCalledTimes(1);
+    expect(cached.body).not.toContain('private-silo-api-key');
+    expect(cached.body).not.toContain('private-silo.internal');
+    expect(cached.body).not.toContain('secret-server-id');
+    expect(cached.body).not.toContain(directory);
+  });
+
+  it('creates, lists, and downloads verified backups without exposing storage paths', async () => {
+    expect((await built.app.inject({
+      method: 'GET', url: '/admin/api/backups'
+    })).statusCode).toBe(401);
+    expect((await built.app.inject({
+      method: 'POST',
+      url: '/admin/api/backups',
+      headers: { cookie }
+    })).statusCode).toBe(403);
+
+    built.database.setSetting('backup_test_marker', 'captured');
+    const created = await request('POST', '/admin/api/backups');
+    expect(created.statusCode).toBe(200);
+    expect(created.json()).toMatchObject({
+      running: false,
+      automatic: { enabled: true, intervalHours: 24, retention: 7 },
+      created: { reason: 'manual', integrity: 'verified' },
+      backups: [expect.objectContaining({ reason: 'manual', integrity: 'verified' })]
+    });
+    const backupId = created.json().created.id as string;
+    expect(backupId).toMatch(/^\d{13}-[a-f0-9]{8}$/);
+    expect(created.body).not.toContain(directory);
+    expect(created.body).not.toContain('test.db');
+
+    const listed = await request('GET', '/admin/api/backups');
+    expect(listed.statusCode).toBe(200);
+    expect(listed.json().latest.id).toBe(backupId);
+
+    const downloaded = await request(
+      'GET',
+      `/admin/api/backups/${encodeURIComponent(backupId)}/download`
+    );
+    expect(downloaded.statusCode).toBe(200);
+    expect(downloaded.headers['content-type']).toContain('application/vnd.sqlite3');
+    expect(downloaded.headers['content-disposition']).toMatch(
+      /^attachment; filename="nuvi-flow-backup-.*\.sqlite"$/
+    );
+    expect(downloaded.headers['content-disposition']).not.toContain('test.db');
+    expect(downloaded.rawPayload.subarray(0, 16).toString('utf8'))
+      .toBe('SQLite format 3\0');
+
+    expect((await request(
+      'GET',
+      '/admin/api/backups/0000000000000-deadbeef/download'
+    )).statusCode).toBe(404);
+
+    const health = await request('GET', '/admin/api/system-health?refresh=1');
+    expect(health.json().checks).toContainEqual(expect.objectContaining({
+      id: 'database_backups',
+      status: 'healthy'
+    }));
+  });
+
+  it('returns live scan progress and requires CSRF to cancel it', async () => {
+    const current = {
+      mode: 'full' as const,
+      phase: 'processing' as const,
+      status: 'running' as const,
+      startedAt: Date.now() - 2_000,
+      elapsedMs: 2_000,
+      discovered: 10,
+      examined: 4,
+      processed: 3,
+      matched: 4,
+      unmatched: 0,
+      errors: 0,
+      progressPercent: 40,
+      cancelRequested: false
+    };
+    vi.spyOn(built.scanner, 'snapshot').mockReturnValue(current);
+    const cancel = vi.spyOn(built.scanner, 'cancel').mockReturnValue(true);
+    built.database.sqlite.prepare(
+      `INSERT INTO scan_runs (
+        id,mode,status,discovered,processed,matched,unmatched,errors,
+        started_at,finished_at,message
+      ) VALUES ('scan-history','changed','completed',8,2,8,0,0,1,2,NULL)`
+    ).run();
+
+    expect((await built.app.inject({
+      method: 'GET', url: '/admin/api/scans'
+    })).statusCode).toBe(401);
+
+    const scans = await request('GET', '/admin/api/scans');
+    expect(scans.statusCode).toBe(200);
+    expect(scans.json()).toMatchObject({
+      current: {
+        mode: 'full',
+        phase: 'processing',
+        examined: 4,
+        progressPercent: 40
+      },
+      recent: [expect.objectContaining({
+        mode: 'changed',
+        status: 'completed',
+        discovered: 8
+      })]
+    });
+
+    expect((await built.app.inject({
+      method: 'POST',
+      url: '/admin/api/scan/cancel',
+      headers: { cookie }
+    })).statusCode).toBe(403);
+    const cancelled = await request('POST', '/admin/api/scan/cancel');
+    expect(cancelled.statusCode).toBe(202);
+    expect(cancel).toHaveBeenCalledWith('administrator');
+
+    cancel.mockReturnValue(false);
+    expect((await request('POST', '/admin/api/scan/cancel')).statusCode)
+      .toBe(409);
+  });
+
+  it('requires CSRF and stops only an active playback ID', async () => {
+    const stopSilo = vi.spyOn(built.playback, 'stopPlayback')
+      .mockResolvedValue(true);
+    const stopFallback = vi.spyOn(built.fallbackAddon, 'stopPlayback')
+      .mockReturnValue(false);
+    const playbackId = '11111111-1111-4111-8111-111111111111';
+
+    const noCsrf = await built.app.inject({
+      method: 'POST',
+      url: `/admin/api/activity/${playbackId}/stop`,
+      headers: { cookie }
+    });
+    expect(noCsrf.statusCode).toBe(403);
+
+    const stopped = await request(
+      'POST',
+      `/admin/api/activity/${playbackId}/stop`
+    );
+    expect(stopped.statusCode).toBe(200);
+    expect(stopSilo).toHaveBeenCalledWith(playbackId);
+    expect(stopFallback).toHaveBeenCalledWith(playbackId);
+
+    stopSilo.mockResolvedValue(false);
+    const gone = await request(
+      'POST',
+      `/admin/api/activity/${playbackId}/stop`
+    );
+    expect(gone.statusCode).toBe(404);
+  });
+
+  it('lists pseudonymous devices and applies validated future-playback overrides', async () => {
+    const deviceId = 'device_1234567890abcdef12345678';
+    built.deviceCapabilities.touchDevice(deviceId, 'explicit');
+    for (let index = 0; index < 3; index += 1) {
+      built.deviceCapabilities.recordEvidence(deviceId, {
+        category: 'video_codec',
+        capability: 'hevc',
+        supported: true,
+        evidence: 'observed_success',
+        confidence: 1
+      });
+    }
+
+    expect((await built.app.inject({
+      method: 'GET',
+      url: '/admin/api/devices'
+    })).statusCode).toBe(401);
+    const listed = await request('GET', '/admin/api/devices');
+    expect(listed.statusCode).toBe(200);
+    expect(listed.json()).toMatchObject({
+      devices: [{
+        id: deviceId,
+        label: 'Device 12345678',
+        identitySource: 'explicit',
+        capabilities: [{
+          category: 'video_codec',
+          capability: 'hevc',
+          state: 'supported',
+          evidence: 'observed_success',
+          successCount: 3
+        }]
+      }],
+      options: expect.arrayContaining([{
+        category: 'video_codec',
+        capability: 'hevc',
+        label: 'HEVC / H.265',
+        group: 'Video'
+      }, {
+        category: 'hdr',
+        capability: 'dolby_vision_profile_8',
+        label: 'Dolby Vision profile 8',
+        group: 'HDR'
+      }])
+    });
+    expect(listed.body).not.toContain('user-agent');
+    expect(listed.body).not.toContain('192.168.');
+
+    const noCsrf = await built.app.inject({
+      method: 'PUT',
+      url: `/admin/api/devices/${deviceId}/capabilities`,
+      headers: { cookie },
+      payload: {
+        category: 'video_codec', capability: 'hevc', state: 'unsupported'
+      }
+    });
+    expect(noCsrf.statusCode).toBe(403);
+
+    const overridden = await request(
+      'PUT',
+      `/admin/api/devices/${deviceId}/capabilities`,
+      { category: 'video_codec', capability: 'hevc', state: 'unsupported' }
+    );
+    expect(overridden.statusCode).toBe(200);
+    expect(overridden.json().device.capabilities[0]).toMatchObject({
+      state: 'unsupported',
+      evidence: 'user_override',
+      successCount: 3
+    });
+
+    const restored = await request(
+      'PUT',
+      `/admin/api/devices/${deviceId}/capabilities`,
+      { category: 'video_codec', capability: 'hevc', state: 'auto' }
+    );
+    expect(restored.statusCode).toBe(200);
+    expect(restored.json().device.capabilities[0]).toMatchObject({
+      state: 'supported',
+      evidence: 'observed_success',
+      successCount: 3
+    });
+
+    const invalid = await request(
+      'PUT',
+      `/admin/api/devices/${deviceId}/capabilities`,
+      { category: 'video_codec', capability: 'made-up-codec', state: 'supported' }
+    );
+    expect(invalid.statusCode).toBe(400);
+  });
+
+  it('tests Silo through the application Silo service', async () => {
+    const testConnection = vi.spyOn(built.silo, 'testConnection')
+      .mockResolvedValue({
+        health: {
+          status: 'ok',
+          server_name: 'Test Silo',
+          server_id: 'silo-test'
+        },
+        profiles: [{
+          id: 'profile-1',
+          name: 'Default',
+          primary: true
+        }]
+      });
+
+    const response = await request(
+      'POST',
+      '/admin/api/integrations/silo/test',
+      {
+        url: 'http://silo:8080/',
+        apiKey: 'test-silo-key'
+      }
+    );
+
+    expect(response.statusCode).toBe(200);
+    expect(testConnection).toHaveBeenCalledWith(
+      'http://silo:8080',
+      'test-silo-key'
+    );
+    expect(response.json()).toMatchObject({
+      ok: true,
+      service: 'silo',
+      instanceName: 'Test Silo',
+      profiles: [{
+        id: 'profile-1',
+        name: 'Default',
+        primary: true
+      }]
+    });
+  });
+
+  it('tests Jellyfin and Plex through the playback-server boundary', async () => {
+    const jellyfin = vi.spyOn(built.playbackServers, 'testJellyfin')
+      .mockResolvedValue({
+        server: {
+          id: 'private-jellyfin-id',
+          name: 'Test Jellyfin',
+          version: '10.11.6',
+          operatingSystem: 'Linux'
+        },
+        users: [{ id: 'user-1', name: 'Viewer', disabled: false }]
+      });
+    const plex = vi.spyOn(built.playbackServers, 'testPlex')
+      .mockResolvedValue({
+        server: {
+          id: 'private-plex-id',
+          name: 'Test Plex',
+          version: '1.42.2.10156'
+        },
+        libraries: [{ id: '1', name: 'Movies', type: 'movie' }]
+      });
+
+    const jellyfinResponse = await request(
+      'POST',
+      '/admin/api/integrations/jellyfin/test',
+      {
+        url: 'http://jellyfin:8096/',
+        apiKey: 'private-jellyfin-key'
+      }
+    );
+    expect(jellyfinResponse.statusCode).toBe(200);
+    expect(jellyfin).toHaveBeenCalledWith(
+      'http://jellyfin:8096',
+      'private-jellyfin-key'
+    );
+    expect(jellyfinResponse.json()).toMatchObject({
+      ok: true,
+      service: 'jellyfin',
+      instanceName: 'Test Jellyfin',
+      users: [{ id: 'user-1', name: 'Viewer', disabled: false }],
+      playbackModes: [
+        'direct_play',
+        'remux',
+        'audio_transcode',
+        'video_transcode'
+      ]
+    });
+    expect(jellyfinResponse.body).not.toContain('private-jellyfin-key');
+
+    const plexResponse = await request(
+      'POST',
+      '/admin/api/integrations/plex/test',
+      {
+        url: 'http://plex:32400/',
+        token: 'private-plex-token'
+      }
+    );
+    expect(plexResponse.statusCode).toBe(200);
+    expect(plex).toHaveBeenCalledWith(
+      'http://plex:32400',
+      'private-plex-token'
+    );
+    expect(plexResponse.json()).toMatchObject({
+      ok: true,
+      service: 'plex',
+      instanceName: 'Test Plex',
+      libraries: [{ id: '1', name: 'Movies', type: 'movie' }],
+      playbackModes: [
+        'direct_play',
+        'direct_stream',
+        'software_transcode'
+      ],
+      requiresPlexPass: false
+    });
+    expect(plexResponse.body).not.toContain('private-plex-token');
+  });
+
+  it('persists playback-server credentials without returning their values', async () => {
+    const currentSettings = Object.fromEntries(
+      Object.entries(built.settings.publicView())
+        .map(([key, value]) => [key, String(value)])
+    );
+    const saved = await request('PUT', '/admin/api/settings', {
+      ...currentSettings,
+      jellyfinEnabled: 'true',
+      jellyfinUrl: 'http://jellyfin:8096/',
+      jellyfinApiKey: 'private-jellyfin-key',
+      jellyfinUserId: 'user_1234',
+      jellyfinPathMappings: `${directory} => /jellyfin/media`,
+      plexEnabled: 'true',
+      plexUrl: 'http://plex:32400/',
+      plexToken: 'private-plex-token',
+      plexPathMappings: `${directory} => /plex/media`
+    });
+
+    expect(saved.statusCode).toBe(200);
+    expect(saved.json().settings).toMatchObject({
+      jellyfinEnabled: true,
+      jellyfinUrl: 'http://jellyfin:8096',
+      jellyfinConfigured: true,
+      jellyfinUserId: 'user_1234',
+      jellyfinPathMappings: `${directory} => /jellyfin/media`,
+      plexEnabled: true,
+      plexUrl: 'http://plex:32400',
+      plexConfigured: true,
+      plexPathMappings: `${directory} => /plex/media`
+    });
+    expect(saved.body).not.toContain('private-jellyfin-key');
+    expect(saved.body).not.toContain('private-plex-token');
+    expect(built.settings.jellyfinApiKey).toBe('private-jellyfin-key');
+    expect(built.settings.plexToken).toBe('private-plex-token');
+  });
+
+  it('refreshes exact provider mappings without returning provider IDs or paths', async () => {
+    built.settings.set('jellyfinEnabled', 'true');
+    built.settings.set('jellyfinUrl', 'http://jellyfin:8096');
+    built.settings.set('jellyfinApiKey', 'private-jellyfin-key');
+    built.settings.set('jellyfinUserId', 'user-1');
+    const refresh = vi.spyOn(built.playbackServers, 'refreshMappings')
+      .mockResolvedValue({
+        provider: 'jellyfin',
+        serverKey: 'private-server-scope',
+        summary: {
+          total: 3,
+          mapped: 2,
+          pending: 0,
+          stale: 0,
+          notFound: 1,
+          ambiguous: 0,
+          errors: 0,
+          refreshDue: 0,
+          lastUpdatedAt: 1234
+        }
+      });
+
+    const response = await request(
+      'POST',
+      '/admin/api/integrations/jellyfin/mappings/refresh'
+    );
+    expect(response.statusCode).toBe(200);
+    expect(refresh).toHaveBeenCalledWith('jellyfin', true);
+    expect(response.json()).toEqual({
+      ok: true,
+      service: 'jellyfin',
+      mapping: {
+        total: 3,
+        mapped: 2,
+        pending: 0,
+        stale: 0,
+        notFound: 1,
+        ambiguous: 0,
+        errors: 0,
+        refreshDue: 0,
+        lastUpdatedAt: 1234
+      }
+    });
+    expect(response.body).not.toContain('private-server-scope');
+    expect(response.body).not.toContain('private-jellyfin-key');
+    expect(response.body).not.toContain(directory);
+  });
+
+  it('rejects malformed provider path-prefix mappings', async () => {
+    const currentSettings = Object.fromEntries(
+      Object.entries(built.settings.publicView())
+        .map(([key, value]) => [key, String(value)])
+    );
+    const response = await request('PUT', '/admin/api/settings', {
+      ...currentSettings,
+      jellyfinPathMappings: 'relative/path => /provider/path'
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error).toContain('absolute paths');
+  });
+
+  it('persists the separate Direct Play visibility setting', async () => {
+    const currentSettings = Object.fromEntries(
+      Object.entries(built.settings.publicView())
+        .map(([key, value]) => [key, String(value)])
+    );
+    const hidden = await request('PUT', '/admin/api/settings', {
+      ...currentSettings,
+      showDirectPlay: 'false'
+    });
+
+    expect(hidden.statusCode).toBe(200);
+    expect(hidden.json().settings.showDirectPlay).toBe(false);
+    expect(built.settings.showDirectPlay).toBe(false);
+
+    const shown = await request('PUT', '/admin/api/settings', {
+      ...currentSettings,
+      showDirectPlay: 'true'
+    });
+    expect(shown.statusCode).toBe(200);
+    expect(shown.json().settings.showDirectPlay).toBe(true);
+  });
+
+  it('validates and persists bounded runtime fallback controls', async () => {
+    const currentSettings = Object.fromEntries(
+      Object.entries(built.settings.publicView())
+        .map(([key, value]) => [key, String(value)])
+    );
+    const saved = await request('PUT', '/admin/api/settings', {
+      ...currentSettings,
+      siloRuntimeFallbackEnabled: 'false',
+      siloRuntimeFallbackSlowSegmentMs: '3250',
+      siloRuntimeFallbackSlowSegmentCount: '4',
+      siloRuntimeFallbackStartupMs: '25000',
+      siloRuntimeFallbackMaxAttempts: '3'
+    });
+    expect(saved.statusCode).toBe(200);
+    expect(saved.json().settings).toMatchObject({
+      siloRuntimeFallbackEnabled: false,
+      siloRuntimeFallbackSlowSegmentMs: 3250,
+      siloRuntimeFallbackSlowSegmentCount: 4,
+      siloRuntimeFallbackStartupMs: 25000,
+      siloRuntimeFallbackMaxAttempts: 3
+    });
+
+    const invalid = await request('PUT', '/admin/api/settings', {
+      ...currentSettings,
+      siloRuntimeFallbackSlowSegmentCount: '1'
+    });
+    expect(invalid.statusCode).toBe(400);
+
+    const tooMany = await request('PUT', '/admin/api/settings', {
+      ...currentSettings,
+      siloRuntimeFallbackMaxAttempts: '4'
+    });
+    expect(tooMany.statusCode).toBe(400);
+  });
+
+  it('validates and persists bounded Silo start-admission controls', async () => {
+    const currentSettings = Object.fromEntries(
+      Object.entries(built.settings.publicView())
+        .map(([key, value]) => [key, String(value)])
+    );
+    const saved = await request('PUT', '/admin/api/settings', {
+      ...currentSettings,
+      siloMaxConcurrentStarts: '3',
+      siloMaxQueuedStarts: '8',
+      siloStartQueueTimeoutMs: '12000'
+    });
+    expect(saved.statusCode).toBe(200);
+    expect(saved.json().settings).toMatchObject({
+      siloMaxConcurrentStarts: 3,
+      siloMaxQueuedStarts: 8,
+      siloStartQueueTimeoutMs: 12000
+    });
+    expect(built.settings.siloMaxConcurrentStarts).toBe(3);
+
+    const invalid = await request('PUT', '/admin/api/settings', {
+      ...currentSettings,
+      siloMaxConcurrentStarts: '9'
+    });
+    expect(invalid.statusCode).toBe(400);
+  });
+
+  it('validates and stores a private fallback addon manifest without returning it', async () => {
+    const testConnection = vi.spyOn(built.fallbackAddon, 'testConnection')
+      .mockResolvedValue({
+        id: 'aiostreams.private', name: 'AIOStreams', version: '2.9.0',
+        provider: 'aiostreams'
+      });
+    const manifestUrl = 'https://aio.example/private-secret/manifest.json';
+    const tested = await request('POST', '/admin/api/integrations/fallback-addon/test', {
+      manifestUrl
+    });
+    expect(tested.statusCode).toBe(200);
+    expect(testConnection).toHaveBeenCalledWith(manifestUrl);
+    expect(tested.json()).toMatchObject({ provider: 'aiostreams', name: 'AIOStreams' });
+
+    const currentSettings = Object.fromEntries(
+      Object.entries(built.settings.publicView()).map(([key, value]) => [key, String(value)])
+    );
+    const saved = await request('PUT', '/admin/api/settings', {
+      ...currentSettings,
+      fallbackAddonEnabled: 'true',
+      fallbackAddonManifestUrl: manifestUrl,
+      fallbackAddonTimeoutMs: '5000'
+    });
+    expect(saved.statusCode).toBe(200);
+    expect(saved.body).not.toContain('private-secret');
+    expect(saved.json().settings).toMatchObject({
+      fallbackAddonEnabled: true,
+      fallbackAddonConfigured: true,
+      fallbackAddonTimeoutMs: 5000,
+      fallbackAddonUseForMissing: true,
+      fallbackAddonMaxAttempts: 10,
+      fallbackAddonNetworkMemoryMinutes: 45
+    });
+    expect(built.settings.fallbackAddonManifestUrl).toBe(manifestUrl);
+  });
+
+  it('returns coherent current-match details and updates action state', async () => {
+    const details = await request('GET', '/admin/api/files/file1');
+    expect(details.statusCode).toBe(200);
+    expect(details.json().file).toMatchObject({
+      status: 'matched', stremioId: 'tt1234567', mediaItemId: 'item1',
+      currentMatch: { title: 'Example Movie', year: 2024, tmdbId: 123, stremioId: 'tt1234567' }
+    });
+
+    const removed = await request('POST', '/admin/api/files/file1/unmatch');
+    expect(removed.statusCode).toBe(200);
+    expect(removed.json().file).toMatchObject({ status: 'unmatched', stremioId: null, mediaItemId: null, currentMatch: null });
+    const duplicateRemove = await request('POST', '/admin/api/files/file1/unmatch');
+    expect(duplicateRemove.statusCode).toBe(409);
+    expect(duplicateRemove.json().error).toContain('does not have a match');
+
+    const ignored = await request('POST', '/admin/api/files/file1/ignore');
+    expect(ignored.statusCode).toBe(200);
+    expect(ignored.json().file).toMatchObject({ status: 'ignored', currentMatch: null });
+  });
+
+  it('applies a match and returns the refreshed file record', async () => {
+    await request('POST', '/admin/api/files/file1/unmatch');
+    built.settings.set('tmdbApiKey', 'test-key');
+    vi.spyOn(built.tmdb, 'ensureMediaItem').mockResolvedValue('item1');
+    const matched = await request('POST', '/admin/api/files/file1/match', { type: 'movie', tmdbId: 123 });
+    expect(matched.statusCode).toBe(200);
+    expect(matched.json().file).toMatchObject({ status: 'matched', stremioId: 'tt1234567', mediaItemId: 'item1' });
+  });
+
+  it('searches automatic metadata without requiring a TMDB key', async () => {
+    vi.spyOn(built.tmdb, 'search').mockResolvedValue([{
+      id: 'tt1234567', provider: 'cinemeta', imdbId: 'tt1234567', title: 'Example Movie', year: 2024, confidence: 1
+    }]);
+    const automatic = await request('GET', '/admin/api/tmdb/search?type=movie&query=Example');
+    expect(automatic.statusCode).toBe(200);
+    expect(automatic.json().results[0]).toMatchObject({ provider: 'cinemeta', id: 'tt1234567' });
+
+    vi.spyOn(built.tmdb, 'search').mockRejectedValue(new Error('Metadata request failed'));
+    const unavailable = await request('GET', '/admin/api/tmdb/search?type=movie&query=Example');
+    expect(unavailable.statusCode).toBe(502);
+    expect(unavailable.json().error).toContain('network connection');
+  });
+
+  it('normalizes legacy match inconsistencies across details, counts, streams, and removal', async () => {
+    built.database.sqlite.prepare("UPDATE media_files SET status='unmatched' WHERE id='file1'").run();
+    const linked = await request('GET', '/admin/api/files/file1');
+    expect(linked.json().file).toMatchObject({ status: 'matched', stremioId: 'tt1234567', mediaItemId: 'item1' });
+    const linkedState = await request('GET', '/admin/api/state');
+    expect(linkedState.json().counts).toMatchObject({ movies: 1, unmatched: 0 });
+
+    const stream = await request('POST', '/admin/api/files/file1/stream');
+    expect(stream.statusCode).toBe(200);
+    const removed = await request('POST', '/admin/api/files/file1/unmatch');
+    expect(removed.statusCode).toBe(200);
+    expect(removed.json().file).toMatchObject({ status: 'unmatched', currentMatch: null });
+
+    built.database.sqlite.prepare("UPDATE media_files SET status='matched',media_item_id=NULL WHERE id='file1'").run();
+    const unlinked = await request('GET', '/admin/api/files/file1');
+    expect(unlinked.json().file).toMatchObject({ status: 'unmatched', stremioId: null, mediaItemId: null, currentMatch: null });
+    const unlinkedState = await request('GET', '/admin/api/state');
+    expect(unlinkedState.json().counts).toMatchObject({ movies: 0, unmatched: 1 });
+
+    built.database.sqlite.prepare("UPDATE media_files SET status='ignored',media_item_id='item1' WHERE id='file1'").run();
+    const ignored = await request('GET', '/admin/api/files/file1');
+    expect(ignored.json().file).toMatchObject({ status: 'ignored', stremioId: null, mediaItemId: null, currentMatch: null });
+    const ignoredState = await request('GET', '/admin/api/state');
+    expect(ignoredState.json().counts).toMatchObject({ movies: 0, unmatched: 0 });
+  });
+
+  it('uses the display override in current match and allows image overrides to be cleared', async () => {
+    built.database.sqlite.prepare("UPDATE media_items SET display_title='Custom title',poster='https://example.test/poster.jpg',background='https://example.test/background.jpg' WHERE id='item1'").run();
+    const customized = await request('GET', '/admin/api/files/file1');
+    expect(customized.json().file).toMatchObject({
+      displayTitle: 'Custom title', poster: 'https://example.test/poster.jpg', background: 'https://example.test/background.jpg',
+      currentMatch: { title: 'Custom title' }
+    });
+
+    const cleared = await request('PATCH', '/admin/api/items/item1', { displayTitle: '', poster: '', background: '' });
+    expect(cleared.statusCode).toBe(200);
+    const item = built.database.sqlite.prepare('SELECT display_title,poster,background FROM media_items WHERE id=?').get('item1') as Record<string, string | null>;
+    expect(item).toEqual({ display_title: null, poster: null, background: null });
+  });
+});

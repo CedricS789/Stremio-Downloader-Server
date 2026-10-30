@@ -1,0 +1,1047 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { Readable } from 'node:stream';
+import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
+import { lookup as mimeLookup } from 'mime-types';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import type { AppConfig } from '../config.js';
+import type { AppDatabase } from '../db/index.js';
+import { parseByteRange } from '../lib/range.js';
+import {
+  createFallbackMediaToken,
+  createJellyfinMediaToken,
+  createSiloMediaToken,
+  verifyFallbackMediaToken,
+  verifyJellyfinMediaToken,
+  verifySiloMediaToken,
+  verifyStreamToken
+} from '../lib/security.js';
+import { deriveDeviceIdentity } from '../services/playback/device-identity.js';
+import {
+  PlaybackCapacityError,
+  PlaybackOrchestrationError,
+  type PlaybackService
+} from '../services/playback/playback-service.js';
+import {
+  HlsManifestError,
+  isHlsManifestPath,
+  parseHlsSegmentTimeline,
+  readHlsManifest,
+  rewriteHlsManifest,
+  rewriteHlsManifestWithResolver
+} from '../services/playback/hls-proxy.js';
+import {
+  JellyfinPlaybackError,
+  type JellyfinPlaybackService
+} from '../services/playback/jellyfin-playback.js';
+import type { SiloService } from '../services/silo-service.js';
+import type {
+  FallbackAddonService,
+  FallbackPlaybackSession
+} from '../services/playback/fallback-addon.js';
+import type { NetworkProfileStore } from '../services/playback/network-profiles.js';
+import type { SettingsService } from '../services/settings.js';
+import type {
+  PlaybackActivityHandle,
+  PlaybackActivityService
+} from '../services/playback/playback-activity.js';
+import type {
+  ExternalSubtitleRow,
+  MediaFileRow,
+  MediaItemRow
+} from '../types.js';
+
+function contentDisposition(name: string): string {
+  const safe = name.replace(/["\r\n\\/]/g, '_');
+  return `inline; filename="${safe}"`;
+}
+
+function headerValue(
+  request: FastifyRequest,
+  name: string
+): string | undefined {
+  const value = request.headers[name];
+
+  return Array.isArray(value)
+    ? value[0]
+    : value;
+}
+
+function finishActivityWithStream(
+  activity: PlaybackActivityHandle,
+  stream: NodeJS.EventEmitter
+): void {
+  stream.once('end', activity.finish);
+  stream.once('close', activity.finish);
+  stream.once('error', activity.finish);
+}
+
+function redirectToFallback(
+  reply: FastifyReply,
+  fallback: FallbackPlaybackSession,
+  authorizationExpiresAt: number,
+  streamSecret: string
+): FastifyReply {
+  const { token } = createFallbackMediaToken(
+    fallback.id,
+    authorizationExpiresAt,
+    streamSecret
+  );
+  return reply
+    .code(302)
+    .header('Location', '/fallback-media/' + encodeURIComponent(token))
+    .header('X-Nuvi-Flow-Playback-Id', fallback.playbackId)
+    .header('Cache-Control', 'no-store')
+    .send();
+}
+
+function authorize(request: FastifyRequest, database: AppDatabase, config: AppConfig): { file: MediaFileRow; token: ReturnType<typeof verifyStreamToken> } | null {
+  const { token } = request.params as { token: string };
+  const payload = verifyStreamToken(token, config.streamSecret);
+  if (!payload) return null;
+  const tokenRow = database.sqlite.prepare('SELECT revoked,last_used_at FROM stream_tokens WHERE jti=? AND media_file_id=? AND expires_at>?')
+    .get(payload.jti, payload.fileId, Date.now()) as { revoked: number; last_used_at: number | null } | undefined;
+  if (!tokenRow || tokenRow.revoked) return null;
+  if (!tokenRow.last_used_at || tokenRow.last_used_at < Date.now() - 60 * 60 * 1000) {
+    database.sqlite.prepare('UPDATE stream_tokens SET last_used_at=? WHERE jti=?').run(Date.now(), payload.jti);
+  }
+  const file = database.sqlite.prepare("SELECT * FROM media_files WHERE id=? AND status='matched'").get(payload.fileId) as MediaFileRow | undefined;
+  return file ? { file, token: payload } : null;
+}
+
+async function serveMedia(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  database: AppDatabase,
+  config: AppConfig,
+  settings: SettingsService,
+  networkProfiles: NetworkProfileStore,
+  playback: PlaybackService,
+  playbackActivity: PlaybackActivityService
+): Promise<FastifyReply> {
+  const authorized = authorize(request, database, config);
+  if (!authorized) {
+    return reply.code(401).header('Cache-Control', 'no-store').send({ error: 'Invalid or expired stream token' });
+  }
+  let stat: fs.Stats;
+  try {
+    stat = await fs.promises.stat(authorized.file.absolute_path);
+    if (!stat.isFile()) throw new Error('not a file');
+  } catch {
+    return reply.code(404).send({ error: 'The media file is currently unavailable.' });
+  }
+  const size = stat.size;
+  const rangeResult = parseByteRange(request.headers.range, size);
+  reply.header('Accept-Ranges', 'bytes');
+  reply.header('Content-Type', mimeLookup(authorized.file.absolute_path) || 'application/octet-stream');
+  reply.header('Content-Disposition', contentDisposition(path.basename(authorized.file.relative_path)));
+  reply.header('Last-Modified', stat.mtime.toUTCString());
+  reply.header('Cache-Control', 'private, no-store');
+  reply.header('X-Content-Type-Options', 'nosniff');
+  if (rangeResult.kind === 'invalid') {
+    return reply.code(416).header('Content-Range', `bytes */${size}`).header('Content-Length', '0').send();
+  }
+  const range = rangeResult.kind === 'valid' ? rangeResult.range : { start: 0, end: size - 1, length: size };
+  const partial = rangeResult.kind === 'valid';
+  if (partial) reply.code(206).header('Content-Range', `bytes ${range.start}-${range.end}/${size}`);
+  else reply.code(200);
+  reply.header('Content-Length', String(range.length));
+  request.log.info({ mediaFileId: authorized.file.id, method: request.method, range: `${range.start}-${range.end}`, size }, 'Serving media byte range');
+  if (request.method === 'HEAD' || size === 0) {
+    return reply.send();
+  }
+  const activity = playbackActivity.beginDirect({
+    requestScope: authorized.token!.jti,
+    deviceId: authorized.token!.deviceId ?? null,
+    file: authorized.file,
+    authorizationExpiresAt: authorized.token!.exp,
+    season: authorized.token!.season,
+    episode: authorized.token!.episode
+  });
+  reply.header('X-Nuvi-Flow-Playback-Id', activity.playbackId);
+  const stream = fs.createReadStream(authorized.file.absolute_path, { start: range.start, end: range.end });
+  const capabilityMeter = playback.createDirectCapabilityMeter(
+    activity.playbackId,
+    authorized.token!.deviceId ?? null,
+    authorized.file
+  );
+  const capabilityOutput = capabilityMeter
+    ? stream.pipe(capabilityMeter)
+    : stream;
+  const networkMeter = authorized.token!.deviceId && settings.fallbackAddonEnabled &&
+    settings.fallbackAddonNetworkAdaptation
+    ? networkProfiles.meter(
+        authorized.token!.deviceId,
+        request.ip,
+        settings.fallbackAddonNetworkMemoryMinutes
+      )
+    : null;
+  const output = networkMeter
+    ? capabilityOutput.pipe(networkMeter)
+    : capabilityOutput;
+  finishActivityWithStream(activity, output);
+  request.raw.once('aborted', () => {
+    activity.finish();
+    if (!stream.destroyed) stream.destroy();
+    if (capabilityMeter && !capabilityMeter.destroyed) capabilityMeter.destroy();
+    if (networkMeter && !networkMeter.destroyed) networkMeter.destroy();
+    if (output !== stream && !output.destroyed) output.destroy();
+  });
+  return reply.send(output);
+}
+
+async function serveSiloStream(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  database: AppDatabase,
+  settings: SettingsService,
+  config: AppConfig,
+  playback: PlaybackService,
+  networkProfiles: NetworkProfileStore
+): Promise<FastifyReply> {
+  const authorized = authorize(
+    request,
+    database,
+    config
+  );
+
+  if (!authorized) {
+    return reply
+      .code(401)
+      .header('Cache-Control', 'no-store')
+      .send({
+        error:
+          'Invalid or expired stream token'
+      });
+  }
+
+  if (
+    !settings.siloEnabled ||
+    !settings.siloUrl ||
+    !settings.siloApiKey ||
+    !settings.siloProfileId
+  ) {
+    return reply
+      .code(503)
+      .header('Cache-Control', 'no-store')
+      .send({
+        error: 'Silo is not configured.'
+      });
+  }
+
+  const item = database.sqlite
+    .prepare(
+      'SELECT * FROM media_items WHERE id=?'
+    )
+    .get(
+      authorized.file.media_item_id
+    ) as MediaItemRow | undefined;
+
+  if (!item) {
+    return reply
+      .code(404)
+      .header('Cache-Control', 'no-store')
+      .send({
+        error: 'Media item not found.'
+      });
+  }
+
+  let episode:
+    | {
+        season: number;
+        episode: number;
+      }
+    | undefined;
+
+  if (item.type === 'series') {
+    const season =
+      authorized.token?.season;
+
+    const episodeNumber =
+      authorized.token?.episode;
+
+    if (
+      season === undefined ||
+      episodeNumber === undefined
+    ) {
+      return reply
+        .code(400)
+        .header('Cache-Control', 'no-store')
+        .send({
+          error:
+            'Episode context is required for Silo TV playback.'
+        });
+    }
+
+    episode = {
+      season,
+      episode: episodeNumber
+    };
+  }
+
+  const fallbackIdentity = authorized.token!.deviceId
+    ? null
+    : deriveDeviceIdentity({
+        installationId: settings.addonAccessToken,
+        explicitDeviceId:
+          headerValue(request, 'x-nuvi-flow-device-id') ||
+          headerValue(request, 'x-stremio-device-id'),
+        clientName: headerValue(request, 'x-stremio-client'),
+        clientVersion: headerValue(request, 'x-stremio-version'),
+        userAgent: headerValue(request, 'user-agent'),
+        ip: request.ip,
+        requestScope: authorized.token!.jti
+      });
+  const deviceId =
+    authorized.token!.deviceId ||
+    fallbackIdentity!.id;
+  const deviceIdentitySource =
+    authorized.token!.deviceId
+      ? 'signed_stream_token'
+      : fallbackIdentity!.source;
+  let sessionResult;
+  const orchestrationInput = {
+    item,
+    file: authorized.file,
+    deviceId,
+    deviceIdentitySource,
+    profileId: settings.siloProfileId,
+    configuredQuality: settings.siloTranscodeQuality,
+    authorizationExpiresAt: authorized.token!.exp,
+    episode,
+    networkEstimateMbps: settings.fallbackAddonEnabled &&
+      settings.fallbackAddonNetworkAdaptation
+      ? networkProfiles.usableEstimateMbps(deviceId, request.ip)
+      : null,
+    networkContextId: networkProfiles.context(deviceId, request.ip).id
+  };
+
+  try {
+    const fallback = await playback.tryFallback(orchestrationInput);
+    if (fallback) {
+      return redirectToFallback(
+        reply,
+        fallback,
+        authorized.token!.exp,
+        config.streamSecret
+      );
+    }
+    const result = await playback.orchestrate(orchestrationInput);
+    sessionResult = result.sessionResult;
+  } catch (error) {
+    if (error instanceof PlaybackCapacityError) {
+      let fallback: FallbackPlaybackSession | null = null;
+      try {
+        fallback = await playback.tryFallback(
+          orchestrationInput,
+          'capacity'
+        );
+      } catch (fallbackError) {
+        request.log.warn({
+          capacity_reason: error.reason,
+          fallback_error: fallbackError instanceof Error
+            ? fallbackError.name
+            : 'unknown'
+        }, 'Capacity fallback could not be selected');
+      }
+      if (fallback) {
+        return redirectToFallback(
+          reply,
+          fallback,
+          authorized.token!.exp,
+          config.streamSecret
+        );
+      }
+      return reply
+        .code(error.statusCode)
+        .header('Retry-After', String(error.retryAfterSeconds))
+        .header('Cache-Control', 'no-store')
+        .send({ error: error.message });
+    }
+    if (error instanceof PlaybackOrchestrationError) {
+      return reply
+        .code(error.statusCode)
+        .header('Cache-Control', 'no-store')
+        .send({ error: error.message });
+    }
+
+    throw error;
+  }
+
+  const { token } =
+    createSiloMediaToken(
+      sessionResult.session.upstreamPath,
+      authorized.token!.exp,
+      config.streamSecret
+    );
+
+  return reply
+    .code(302)
+    .header(
+      'Location',
+      '/silo-media/' +
+        encodeURIComponent(token)
+    )
+    .header(
+      'X-Nuvi-Flow-Playback-Id',
+      sessionResult.session.playbackId
+    )
+    .header('Cache-Control', 'no-store')
+    .send();
+}
+
+async function serveFallbackMedia(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  config: AppConfig,
+  fallbackAddon: FallbackAddonService,
+  settings: SettingsService,
+  networkProfiles: NetworkProfileStore,
+  playbackActivity: PlaybackActivityService
+): Promise<FastifyReply> {
+  const { token } = request.params as { token: string };
+  const payload = verifyFallbackMediaToken(token, config.streamSecret);
+  if (!payload) {
+    return reply.code(401).header('Cache-Control', 'no-store')
+      .send({ error: 'Invalid or expired fallback media token' });
+  }
+  const session = fallbackAddon.getSession(payload.sessionId);
+  if (!session) {
+    return reply.code(410).header('Cache-Control', 'no-store')
+      .send({ error: 'Fallback playback session has expired.' });
+  }
+  const upstreamHeaders = new Headers();
+  for (const name of ['accept', 'range', 'if-none-match', 'if-modified-since']) {
+    const value = headerValue(request, name);
+    if (value) upstreamHeaders.set(name, value);
+  }
+  let response: Response;
+  try {
+    response = await fallbackAddon.fetchMedia(session, {
+      method: request.method,
+      headers: upstreamHeaders
+    });
+  } catch {
+    return reply.code(502).header('Cache-Control', 'no-store')
+      .send({ error: 'Fallback media could not be fetched.' });
+  }
+  const contentType = response.headers.get('content-type') || 'application/octet-stream';
+  if (!response.ok && ![304, 416].includes(response.status)) {
+    await response.body?.cancel();
+    return reply.code(response.status === 404 ? 404 : 502)
+      .header('Cache-Control', 'no-store')
+      .send({ error: 'Fallback media could not be fetched.' });
+  }
+  if (/mpegurl/i.test(contentType)) {
+    await response.body?.cancel();
+    return reply.code(502).header('Cache-Control', 'no-store')
+      .send({ error: 'HLS fallback streams are not supported yet.' });
+  }
+  for (const name of [
+    'accept-ranges', 'content-range', 'content-disposition', 'content-length',
+    'etag', 'last-modified'
+  ]) {
+    const value = response.headers.get(name);
+    if (value) reply.header(name, value);
+  }
+  reply.code(response.status)
+    .header('Content-Type', contentType)
+    .header('Cache-Control', 'private, no-store')
+    .header('X-Content-Type-Options', 'nosniff');
+  if ([304, 416].includes(response.status)) {
+    await response.body?.cancel();
+    return reply.send();
+  }
+  if (request.method === 'HEAD' || !response.body) {
+    await response.body?.cancel();
+    return reply.send();
+  }
+  const upstreamStream = Readable.fromWeb(
+    response.body as unknown as NodeReadableStream
+  );
+  const stream = session.deviceId && settings.fallbackAddonEnabled &&
+    settings.fallbackAddonNetworkAdaptation
+    ? upstreamStream.pipe(networkProfiles.meter(
+        session.deviceId,
+        request.ip,
+        settings.fallbackAddonNetworkMemoryMinutes
+      ))
+    : upstreamStream;
+  const activity = playbackActivity.beginFallback(session.playbackId);
+  finishActivityWithStream(activity, stream);
+  request.raw.once('aborted', () => {
+    activity.finish();
+    if (!upstreamStream.destroyed) upstreamStream.destroy();
+    if (!stream.destroyed) stream.destroy();
+  });
+  return reply.send(stream);
+}
+
+function redirectToDirectMedia(
+  reply: FastifyReply,
+  streamToken: string
+): FastifyReply {
+  return reply
+    .code(302)
+    .header('Location', '/media/' + encodeURIComponent(streamToken))
+    .header('X-Nuvi-Flow-Fallback', 'direct')
+    .header('Cache-Control', 'no-store')
+    .send();
+}
+
+async function serveJellyfinStream(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  database: AppDatabase,
+  settings: SettingsService,
+  config: AppConfig,
+  jellyfinPlayback: JellyfinPlaybackService
+): Promise<FastifyReply> {
+  const authorized = authorize(request, database, config);
+  if (!authorized) {
+    return reply.code(401).header('Cache-Control', 'no-store')
+      .send({ error: 'Invalid or expired stream token' });
+  }
+  const { token: streamToken } = request.params as { token: string };
+  if (!settings.jellyfinEnabled || !settings.jellyfinUrl ||
+    !settings.jellyfinApiKey || !settings.jellyfinUserId) {
+    return redirectToDirectMedia(reply, streamToken);
+  }
+  const item = database.sqlite.prepare(
+    'SELECT * FROM media_items WHERE id=?'
+  ).get(authorized.file.media_item_id) as MediaItemRow | undefined;
+  if (!item) {
+    return reply.code(404).header('Cache-Control', 'no-store')
+      .send({ error: 'Media item not found.' });
+  }
+  let episode: { season: number; episode: number } | undefined;
+  if (item.type === 'series') {
+    const season = authorized.token?.season;
+    const episodeNumber = authorized.token?.episode;
+    if (season === undefined || episodeNumber === undefined) {
+      return reply.code(400).header('Cache-Control', 'no-store')
+        .send({ error: 'Episode context is required for Jellyfin TV playback.' });
+    }
+    episode = { season, episode: episodeNumber };
+  }
+  const fallbackIdentity = authorized.token!.deviceId
+    ? null
+    : deriveDeviceIdentity({
+        installationId: settings.addonAccessToken,
+        explicitDeviceId:
+          headerValue(request, 'x-nuvi-flow-device-id') ||
+          headerValue(request, 'x-stremio-device-id'),
+        clientName: headerValue(request, 'x-stremio-client'),
+        clientVersion: headerValue(request, 'x-stremio-version'),
+        userAgent: headerValue(request, 'user-agent'),
+        ip: request.ip,
+        requestScope: authorized.token!.jti
+      });
+  const deviceId = authorized.token!.deviceId || fallbackIdentity!.id;
+  const deviceIdentitySource = authorized.token!.deviceId
+    ? 'signed_stream_token'
+    : fallbackIdentity!.source;
+  try {
+    const started = await jellyfinPlayback.start({
+      item,
+      file: authorized.file,
+      deviceId,
+      deviceIdentitySource,
+      authorizationExpiresAt: authorized.token!.exp,
+      ...episode
+    });
+    const { token } = createJellyfinMediaToken(
+      started.sessionId,
+      started.resourceId,
+      started.expiresAt,
+      config.streamSecret
+    );
+    return reply
+      .code(302)
+      .header('Location', '/jellyfin-media/' + encodeURIComponent(token))
+      .header('X-Nuvi-Flow-Playback-Id', started.playbackId)
+      .header('Cache-Control', 'no-store')
+      .send();
+  } catch (error) {
+    request.log.warn({
+      media_file_id: authorized.file.id,
+      error: error instanceof Error ? error.name : 'unknown'
+    }, 'Jellyfin playback fell back to the direct local file');
+    return redirectToDirectMedia(reply, streamToken);
+  }
+}
+
+async function serveJellyfinMedia(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  config: AppConfig,
+  jellyfinPlayback: JellyfinPlaybackService,
+  playbackActivity: PlaybackActivityService
+): Promise<FastifyReply> {
+  const { token } = request.params as { token: string };
+  const payload = verifyJellyfinMediaToken(token, config.streamSecret);
+  if (!payload) {
+    return reply.code(401).header('Cache-Control', 'no-store')
+      .send({ error: 'Invalid or expired Jellyfin media token' });
+  }
+  const headers = new Headers();
+  for (const name of [
+    'accept', 'range', 'if-none-match', 'if-modified-since'
+  ]) {
+    const value = headerValue(request, name);
+    if (value) headers.set(name, value);
+  }
+  const abort = new AbortController();
+  request.raw.once('aborted', () => abort.abort());
+  let fetched: Awaited<ReturnType<JellyfinPlaybackService['fetchMedia']>>;
+  try {
+    fetched = await jellyfinPlayback.fetchMedia(
+      payload.sessionId,
+      payload.resourceId,
+      { method: request.method, headers, signal: abort.signal }
+    );
+  } catch (error) {
+    const status = error instanceof JellyfinPlaybackError
+      ? error.statusCode
+      : 502;
+    return reply.code(status === 410 ? 410 : 502)
+      .header('Cache-Control', 'no-store')
+      .send({
+        error: status === 410
+          ? 'Jellyfin playback session has expired.'
+          : 'Jellyfin media could not be fetched.'
+      });
+  }
+  const { response } = fetched;
+  const copyHeader = (name: string): void => {
+    const value = response.headers.get(name);
+    if (value) reply.header(name, value);
+  };
+  for (const name of [
+    'accept-ranges', 'content-range', 'content-disposition', 'etag',
+    'last-modified'
+  ]) copyHeader(name);
+  reply.header('X-Nuvi-Flow-Playback-Id', fetched.playbackId);
+  if (response.status === 304 || response.status === 416) {
+    await response.body?.cancel();
+    fetched.release();
+    copyHeader('content-length');
+    return reply.code(response.status)
+      .header('Cache-Control', 'private, no-store')
+      .send();
+  }
+  if (!response.ok || (response.status >= 300 && response.status < 400)) {
+    await response.body?.cancel();
+    fetched.release();
+    return reply.code(response.status === 404 ? 404 : 502)
+      .header('Cache-Control', 'no-store')
+      .send({ error: 'Jellyfin media could not be fetched.' });
+  }
+  let contentType = response.headers.get('content-type') ||
+    'application/octet-stream';
+  const manifestResponse = /mpegurl/i.test(contentType) ||
+    (() => {
+      try {
+        return new URL(response.url).pathname.toLowerCase().endsWith('.m3u8');
+      } catch {
+        return false;
+      }
+    })();
+  if (manifestResponse) contentType = 'application/vnd.apple.mpegurl';
+  reply.code(response.status)
+    .header('Content-Type', contentType)
+    .header('Cache-Control', 'private, no-store')
+    .header('X-Content-Type-Options', 'nosniff');
+  if (request.method === 'HEAD') {
+    await response.body?.cancel();
+    fetched.release();
+    copyHeader('content-length');
+    return reply.send();
+  }
+  if (manifestResponse) {
+    const activity = playbackActivity.beginJellyfin(payload.sessionId);
+    try {
+      const manifest = await readHlsManifest(response);
+      const rewritten = rewriteHlsManifestWithResolver(
+        manifest,
+        reference => {
+          const child = jellyfinPlayback.registerChildResource(
+            payload.sessionId,
+            payload.resourceId,
+            reference,
+            payload.exp
+          );
+          const { token: childToken } = createJellyfinMediaToken(
+            payload.sessionId,
+            child.resourceId,
+            child.expiresAt,
+            config.streamSecret
+          );
+          return '/jellyfin-media/' + encodeURIComponent(childToken);
+        }
+      );
+      const body = Buffer.from(rewritten);
+      return reply.header('Content-Length', String(body.length)).send(body);
+    } catch (error) {
+      if (error instanceof HlsManifestError ||
+        error instanceof JellyfinPlaybackError) {
+        return reply.code(502)
+          .header('Content-Type', 'application/json; charset=utf-8')
+          .removeHeader('Content-Length')
+          .header('Cache-Control', 'no-store')
+          .send({ error: 'Jellyfin returned an invalid HLS manifest.' });
+      }
+      throw error;
+    } finally {
+      activity?.finish();
+      fetched.release();
+    }
+  }
+  copyHeader('content-length');
+  if (!response.body) {
+    fetched.release();
+    return reply.send();
+  }
+  const stream = Readable.fromWeb(
+    response.body as unknown as NodeReadableStream
+  );
+  const activity = playbackActivity.beginJellyfin(payload.sessionId);
+  if (activity) finishActivityWithStream(activity, stream);
+  stream.once('end', fetched.release);
+  stream.once('close', fetched.release);
+  stream.once('error', fetched.release);
+  request.raw.once('aborted', () => {
+    activity?.finish();
+    fetched.release();
+    if (!stream.destroyed) stream.destroy();
+  });
+  return reply.send(stream);
+}
+
+async function serveSiloMedia(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  settings: SettingsService,
+  config: AppConfig,
+  silo: SiloService,
+  playback: PlaybackService,
+  playbackActivity: PlaybackActivityService
+): Promise<FastifyReply> {
+  const { token } =
+    request.params as { token: string };
+
+  const payload = verifySiloMediaToken(
+    token,
+    config.streamSecret
+  );
+
+  if (!payload) {
+    return reply
+      .code(401)
+      .header('Cache-Control', 'no-store')
+      .send({
+        error:
+          'Invalid or expired Silo media token'
+      });
+  }
+
+  if (
+    !settings.siloEnabled ||
+    !settings.siloUrl ||
+    !settings.siloApiKey
+  ) {
+    return reply
+      .code(503)
+      .header('Cache-Control', 'no-store')
+      .send({
+        error: 'Silo is not configured.'
+      });
+  }
+
+  const upstreamPath = playback.resolveMediaPath(payload.path);
+  playback.touchMediaPath(upstreamPath);
+
+  const upstreamHeaders = new Headers();
+
+  for (const name of [
+    'accept',
+    'range',
+    'if-none-match',
+    'if-modified-since'
+  ]) {
+    const value = headerValue(request, name);
+    if (value) upstreamHeaders.set(name, value);
+  }
+
+  let response: Response;
+  const upstreamStartedAt = Date.now();
+
+  try {
+    response = await silo.fetchMedia(upstreamPath, {
+      method: request.method,
+      headers: upstreamHeaders
+    });
+    playback.recordMediaResponse(
+      upstreamPath,
+      Date.now() - upstreamStartedAt,
+      response.status
+    );
+  } catch {
+    playback.recordMediaResponse(
+      upstreamPath,
+      Date.now() - upstreamStartedAt,
+      0
+    );
+    return reply
+      .code(502)
+      .header('Cache-Control', 'no-store')
+      .send({ error: 'Silo media could not be fetched.' });
+  }
+
+  const copyHeader = (name: string): void => {
+    const value = response.headers.get(name);
+    if (value) reply.header(name, value);
+  };
+
+  for (const name of [
+    'accept-ranges',
+    'content-range',
+    'content-disposition',
+    'etag',
+    'last-modified'
+  ]) {
+    copyHeader(name);
+  }
+
+  if (response.status === 304 || response.status === 416) {
+    await response.body?.cancel();
+    copyHeader('content-length');
+    return reply
+      .code(response.status)
+      .header('Cache-Control', 'private, no-store')
+      .send();
+  }
+
+  if (!response.ok) {
+    await response.body?.cancel();
+
+    return reply
+      .code(
+        response.status === 404
+          ? 404
+          : 502
+      )
+      .header('Cache-Control', 'no-store')
+      .send({
+        error:
+          'Silo media could not be fetched.'
+      });
+  }
+
+  let contentType =
+    response.headers.get('content-type') ||
+    'application/octet-stream';
+
+  const manifestResponse = isHlsManifestPath(upstreamPath);
+
+  if (manifestResponse) {
+    contentType =
+      'application/vnd.apple.mpegurl';
+  } else if (
+    new URL(upstreamPath, 'http://silo.invalid')
+      .pathname.endsWith('.ts')
+  ) {
+    contentType = 'video/mp2t';
+  }
+
+  reply
+    .code(response.status)
+    .header('Content-Type', contentType)
+    .header('Cache-Control', 'private, no-store')
+    .header('X-Content-Type-Options', 'nosniff');
+
+  if (request.method === 'HEAD') {
+    await response.body?.cancel();
+    copyHeader('content-length');
+    return reply.send();
+  }
+
+  if (manifestResponse) {
+    const activity = playbackActivity.beginSilo(upstreamPath);
+    try {
+      const manifest = await readHlsManifest(response);
+      playback.recordManifest(parseHlsSegmentTimeline(
+        manifest,
+        upstreamPath,
+        settings.siloUrl,
+        playback.mediaSourceStartSeconds(upstreamPath)
+      ));
+      const rewritten = rewriteHlsManifest(
+        manifest,
+        upstreamPath,
+        settings.siloUrl,
+        siloPath => {
+          const { token } = createSiloMediaToken(
+            siloPath,
+            payload.exp,
+            config.streamSecret
+          );
+          return '/silo-media/' + encodeURIComponent(token);
+        }
+      );
+      const body = Buffer.from(rewritten);
+      return reply
+        .header('Content-Length', String(body.length))
+        .send(body);
+    } catch (error) {
+      if (error instanceof HlsManifestError) {
+        return reply
+          .code(502)
+          .header('Content-Type', 'application/json; charset=utf-8')
+          .removeHeader('Content-Length')
+          .header('Cache-Control', 'no-store')
+          .send({ error: 'Silo returned an invalid HLS manifest.' });
+      }
+      throw error;
+    } finally {
+      activity?.finish();
+    }
+  }
+
+  copyHeader('content-length');
+  if (!response.body) return reply.send();
+
+  const stream = Readable.fromWeb(
+    response.body as unknown as NodeReadableStream
+  );
+  const capabilityMeter = playback.createSiloCapabilityMeter(upstreamPath);
+  const output = capabilityMeter
+    ? stream.pipe(capabilityMeter)
+    : stream;
+  const activity = playbackActivity.beginSilo(upstreamPath);
+  if (activity) finishActivityWithStream(activity, output);
+  request.raw.once('aborted', () => {
+    activity?.finish();
+    if (!stream.destroyed) stream.destroy();
+    if (capabilityMeter && !capabilityMeter.destroyed) capabilityMeter.destroy();
+    if (output !== stream && !output.destroyed) output.destroy();
+  });
+  return reply.send(output);
+}
+
+export function registerMediaRoutes(
+  app: FastifyInstance,
+  database: AppDatabase,
+  config: AppConfig,
+  settings: SettingsService,
+  playback: PlaybackService,
+  silo: SiloService,
+  jellyfinPlayback: JellyfinPlaybackService,
+  fallbackAddon: FallbackAddonService,
+  networkProfiles: NetworkProfileStore,
+  playbackActivity: PlaybackActivityService
+): void {
+  const options = { config: { rateLimit: { max: 1200, timeWindow: '1 minute' } } };
+  app.get('/media/:token', options, (request, reply) =>
+    serveMedia(request, reply, database, config, settings, networkProfiles, playback, playbackActivity));
+  app.head('/media/:token', options, (request, reply) =>
+    serveMedia(request, reply, database, config, settings, networkProfiles, playback, playbackActivity));
+
+  app.get(
+    '/jellyfin-stream/:token',
+    options,
+    (request, reply) => serveJellyfinStream(
+      request,
+      reply,
+      database,
+      settings,
+      config,
+      jellyfinPlayback
+    )
+  );
+  app.get(
+    '/jellyfin-media/:token',
+    options,
+    (request, reply) => serveJellyfinMedia(
+      request,
+      reply,
+      config,
+      jellyfinPlayback,
+      playbackActivity
+    )
+  );
+  app.head(
+    '/jellyfin-media/:token',
+    options,
+    (request, reply) => serveJellyfinMedia(
+      request,
+      reply,
+      config,
+      jellyfinPlayback,
+      playbackActivity
+    )
+  );
+  app.get(
+    '/silo-stream/:token',
+    options,
+    (request, reply) =>
+      serveSiloStream(
+        request,
+        reply,
+        database,
+        settings,
+        config,
+        playback,
+        networkProfiles
+      )
+  );
+
+  app.get(
+    '/silo-media/:token',
+    options,
+    (request, reply) =>
+      serveSiloMedia(
+        request,
+        reply,
+        settings,
+        config,
+        silo,
+        playback,
+        playbackActivity
+      )
+  );
+  app.head(
+    '/silo-media/:token',
+    options,
+    (request, reply) =>
+      serveSiloMedia(
+        request,
+        reply,
+        settings,
+        config,
+        silo,
+        playback,
+        playbackActivity
+      )
+  );
+  app.get('/fallback-media/:token', options, (request, reply) =>
+    serveFallbackMedia(request, reply, config, fallbackAddon, settings, networkProfiles, playbackActivity));
+  app.head('/fallback-media/:token', options, (request, reply) =>
+    serveFallbackMedia(request, reply, config, fallbackAddon, settings, networkProfiles, playbackActivity));
+  app.get('/subtitles/:token/:subtitleId', { config: { rateLimit: { max: 600, timeWindow: '1 minute' } } }, async (request, reply) => {
+    const authorized = authorize(request, database, config);
+    if (!authorized) return reply.code(401).send({ error: 'Invalid or expired stream token' });
+    const { subtitleId } = request.params as { subtitleId: string };
+    const subtitle = database.sqlite.prepare('SELECT * FROM external_subtitles WHERE id=? AND media_file_id=?').get(subtitleId, authorized.file.id) as ExternalSubtitleRow | undefined;
+    if (!subtitle) return reply.code(404).send({ error: 'Subtitle not found' });
+    try {
+      const stat = await fs.promises.stat(subtitle.absolute_path);
+      reply.header('Content-Type', subtitle.format === 'vtt' ? 'text/vtt; charset=utf-8' : 'text/plain; charset=utf-8');
+      reply.header('Content-Length', String(stat.size));
+      reply.header('Cache-Control', 'private, max-age=3600');
+      return reply.send(fs.createReadStream(subtitle.absolute_path));
+    } catch {
+      return reply.code(404).send({ error: 'Subtitle not found' });
+    }
+  });
+}

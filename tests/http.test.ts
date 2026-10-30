@@ -1,0 +1,1512 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { loadConfig } from '../src/config.js';
+import {
+  createFallbackMediaToken,
+  createSiloMediaToken,
+  createStreamToken,
+  verifySiloMediaToken,
+  verifyStreamToken
+} from '../src/lib/security.js';
+import { buildApp, type BuiltApp } from '../src/server.js';
+
+describe('Stremio and media HTTP endpoints', () => {
+  let built: BuiltApp;
+  let directory: string;
+  let mediaPath: string;
+  const secret = 'test-stream-secret-at-least-thirty-two-characters';
+
+  beforeEach(async () => {
+    directory = fs.mkdtempSync(path.join(os.tmpdir(), 'zpm-test-'));
+    mediaPath = path.join(directory, 'Example Movie (2024).mp4');
+    fs.writeFileSync(mediaPath, Buffer.from('0123456789abcdefghijklmnopqrstuvwxyz'));
+    const config = loadConfig({
+      PORT: '60500', BASE_URL: 'https://media.example.test', DATABASE_PATH: path.join(directory, 'test.db'),
+      MOVIES_PATH: directory, TV_PATH: directory, ADMIN_PASSWORD: 'safe-test-password',
+      SESSION_SECRET: 'test-session-secret-at-least-thirty-two-chars', STREAM_SECRET: secret,
+      SCAN_ON_STARTUP: 'false', WATCH_MEDIA: 'false', LOG_LEVEL: 'silent',
+      SILO_ENABLED: 'true', SILO_URL: 'http://silo:8080', SILO_API_KEY: 'test-silo-key'
+    });
+    built = await buildApp(config);
+    const now = Date.now();
+    built.database.sqlite.prepare(`INSERT INTO media_items (id,type,stremio_id,tmdb_id,imdb_id,title,year,created_at,updated_at)
+      VALUES ('item1','movie','tt1234567',123,'tt1234567','Example Movie',2024,?,?)`).run(now, now);
+    built.database.sqlite.prepare(`INSERT INTO media_files (
+      id,library_type,absolute_path,relative_path,size,mtime_ms,duration_seconds,video_codec,audio_codec,width,height,
+      audio_channels,parsed_title,quality,media_item_id,confidence,status,added_at,updated_at,last_seen_at
+    ) VALUES ('file1','movie',?,?,?,?,120.5,'h264','aac',1920,1080,6,'Example Movie','1080P','item1',.99,'matched',?,?,?)`)
+      .run(mediaPath, path.basename(mediaPath), fs.statSync(mediaPath).size, fs.statSync(mediaPath).mtimeMs, now, now, now);
+    await built.app.ready();
+  });
+
+  afterEach(async () => {
+    vi.unstubAllGlobals();
+    await built.app.close();
+    built.database.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  });
+
+  function token(): string {
+    const created = createStreamToken('file1', Date.now() + 60_000, secret, 'integration-token');
+    built.database.sqlite.prepare('INSERT OR REPLACE INTO stream_tokens (jti,media_file_id,expires_at,created_at,revoked) VALUES (?,?,?,?,0)')
+      .run(created.payload.jti, 'file1', created.payload.exp, Date.now());
+    return created.token;
+  }
+
+  function addonUrl(pathname: string): string {
+    return `${built.settings.addonAccessPath}${pathname}`;
+  }
+
+  it('keeps the deployment health endpoint ready after the migration', async () => {
+    const response = await built.app.inject({ method: 'GET', url: '/health' });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ status: 'ok' });
+  });
+
+  it('requires the private addon URL for every Stremio resource', async () => {
+    expect(built.settings.addonAccessToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
+
+    for (const url of [
+      '/manifest.json',
+      '/catalog/movie/personal_movies.json',
+      '/meta/movie/tt1234567.json',
+      '/stream/movie/tt1234567.json',
+      '/addon/not-the-token/manifest.json'
+    ]) {
+      const response = await built.app.inject({ method: 'GET', url });
+      expect(response.statusCode).toBe(404);
+    }
+
+    const manifestResponse = await built.app.inject({
+      method: 'GET',
+      url: addonUrl('/manifest.json')
+    });
+    expect(manifestResponse.statusCode).toBe(200);
+    expect(manifestResponse.json()).toMatchObject({
+      id: 'community.nuviflow',
+      name: 'Nuvi-Flow'
+    });
+  });
+
+  it('returns catalog and meta protocol objects', async () => {
+    const catalog = await built.app.inject({ method: 'GET', url: addonUrl('/catalog/movie/personal_movies.json') });
+    expect(catalog.statusCode).toBe(200);
+    expect(catalog.json().metas[0]).toMatchObject({ id: 'tt1234567', type: 'movie', name: 'Example Movie' });
+    const meta = await built.app.inject({ method: 'GET', url: addonUrl('/meta/movie/tt1234567.json') });
+    expect(meta.statusCode).toBe(200);
+    expect(meta.json().meta).toMatchObject({ id: 'tt1234567', moviedb_id: 123 });
+  });
+
+  it('returns a signed direct stream URL', async () => {
+    const response = await built.app.inject({ method: 'GET', url: addonUrl('/stream/movie/tt1234567.json') });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().streams[0]).toMatchObject({ title: '1080p • H.264 • AAC 5.1' });
+    expect(response.json().streams[0].url).toMatch(/^https:\/\/media\.example\.test\/media\//);
+  });
+
+  it('plays missing media through AIO while still queuing Radarr or Sonarr', async () => {
+    built.settings.set('fallbackAddonEnabled', 'true');
+    built.settings.set('fallbackAddonUseForMissing', 'true');
+    built.settings.set('fallbackAddonManifestUrl', 'https://aio.example/private/manifest.json');
+    const enqueue = vi.spyOn(built.requester, 'enqueueMissing');
+    vi.spyOn(built.fallbackAddon, 'tryPlayback').mockResolvedValue({
+      id: '11111111-1111-4111-8111-111111111111',
+      playbackId: 'playback-missing',
+      upstreamUrl: 'https://cdn.example/private.mkv',
+      requestHeaders: {},
+      label: '2160p WEB-DL',
+      candidates: [],
+      candidateIndex: 0,
+      candidateVerified: false,
+      durationSeconds: null,
+      deviceId: 'device_1234567890abcdef12345678',
+      createdAt: Date.now(),
+      lastAccess: Date.now(),
+      expiresAt: Date.now() + 60_000,
+      maximumExpiresAt: Date.now() + 60_000
+    });
+
+    const response = await built.app.inject({
+      method: 'GET',
+      url: addonUrl('/stream/movie/tt9999999.json'),
+      headers: { 'x-nuvi-flow-device-id': 'living-room' }
+    });
+    expect(response.statusCode).toBe(200);
+    expect(enqueue).toHaveBeenCalledWith('movie', 'tt9999999');
+    expect(response.json().streams).toHaveLength(1);
+    expect(response.json().streams[0]).toMatchObject({
+      name: 'Nuvi-Flow Auto',
+      title: 'Auto • fallback addon • immediate playback'
+    });
+    expect(response.json().streams[0].url).toMatch(
+      /^https:\/\/media\.example\.test\/fallback-media\//
+    );
+    expect(response.body).not.toContain('private.mkv');
+  });
+
+  it('carries stable, distinct device identities in fresh stream URLs', async () => {
+    const deviceIdFromStream = async (explicitDeviceId: string) => {
+      const response = await built.app.inject({
+        method: 'GET',
+        url: addonUrl('/stream/movie/tt1234567.json'),
+        headers: {
+          'x-nuvi-flow-device-id': explicitDeviceId,
+          'user-agent': 'Nuvio Test Client'
+        }
+      });
+      const pathname = new URL(response.json().streams[0].url).pathname;
+      const encodedToken = pathname.split('/').at(-1) || '';
+      return verifyStreamToken(
+        decodeURIComponent(encodedToken),
+        secret
+      );
+    };
+
+    const first = await deviceIdFromStream('device-a');
+    const second = await deviceIdFromStream('device-a');
+    const other = await deviceIdFromStream('device-b');
+
+    expect(first?.jti).not.toBe(second?.jti);
+    expect(first?.deviceId).toMatch(/^device_[a-f0-9]{24}$/);
+    expect(first?.deviceId).toBe(second?.deviceId);
+    expect(other?.deviceId).not.toBe(first?.deviceId);
+  });
+
+  it('adds a route-neutral Auto stream without changing direct playback by default', async () => {
+    built.settings.set(
+      'siloProfileId',
+      'profile-1'
+    );
+
+    const response = await built.app.inject({
+      method: 'GET',
+      url: addonUrl('/stream/movie/tt1234567.json')
+    });
+
+    expect(response.statusCode).toBe(200);
+
+    const streams = response.json().streams;
+
+    expect(streams).toHaveLength(2);
+
+    expect(streams[0]).toMatchObject({
+      title: '1080p • H.264 • AAC 5.1'
+    });
+
+    expect(streams[0].url).toMatch(
+      /^https:\/\/media\.example\.test\/media\//
+    );
+
+    expect(streams[1].url).toMatch(
+      /^https:\/\/media\.example\.test\/silo-stream\//
+    );
+
+    expect(streams[1]).toMatchObject({
+      name: 'Nuvi-Flow Auto',
+      title: 'Auto • up to 1080p • direct/remux/transcode',
+      description: 'Chooses the highest compatible Silo route, including original playback'
+    });
+  });
+
+  it('can hide the separate Direct entry without hiding the Silo fallback', async () => {
+    built.settings.set('siloProfileId', 'profile-1');
+    built.settings.set('showDirectPlay', 'false');
+
+    const response = await built.app.inject({
+      method: 'GET',
+      url: addonUrl('/stream/movie/tt1234567.json')
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().streams).toHaveLength(1);
+    expect(response.json().streams[0]).toMatchObject({
+      name: 'Nuvi-Flow Auto'
+    });
+
+    built.settings.set('siloEnabled', 'false');
+    const withoutSilo = await built.app.inject({
+      method: 'GET',
+      url: addonUrl('/stream/movie/tt1234567.json')
+    });
+    expect(withoutSilo.json().streams).toHaveLength(1);
+    expect(withoutSilo.json().streams[0].url).toMatch(/\/media\//);
+  });
+
+  it('keeps Auto direct-first when the separate Direct entry is hidden', async () => {
+    built.settings.set('siloProfileId', 'profile-1');
+    built.settings.set('siloTranscodeQuality', 'auto');
+    built.settings.set('showDirectPlay', 'false');
+    built.database.sqlite.prepare(
+      `UPDATE media_files
+       SET relative_path='The Return of the King (2003).mkv',
+           video_codec='h264',audio_codec='truehd',audio_channels=8
+       WHERE id='file1'`
+    ).run();
+
+    const fetchMock = vi.fn().mockImplementation(async (
+      url: string,
+      init?: RequestInit
+    ) => {
+      if (url.endsWith('/versions')) {
+        return new Response(JSON.stringify([{
+          file_id: 120,
+          file_path: mediaPath
+        }]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.endsWith('/playback/start')) {
+        const body = JSON.parse(String(init?.body));
+        expect(body.quality_preference).toBe('auto');
+        expect(body.client_capabilities).toMatchObject({
+          codecs_video: ['h264'],
+          codecs_audio: ['aac', 'truehd'],
+          containers: ['mp4', 'mkv', 'hls']
+        });
+        expect(body.client_playback_context.deliveries.original_http)
+          .toMatchObject({
+            containers: ['mp4', 'mkv'],
+            audio_decode_codecs: ['aac', 'truehd'],
+            max_channels: 8
+          });
+        expect(body.client_playback_context.deliveries.hls)
+          .toMatchObject({
+            containers: ['hls'],
+            audio_decode_codecs: ['aac'],
+            max_channels: 2
+          });
+        return new Response(JSON.stringify({
+          protocol_version: 3,
+          server_features: ['playback_plan_v3'],
+          outcome: 'playable',
+          session_id: 'direct-first-session',
+          playback_plan: {
+            delivery: 'original_http',
+            decision_reason: 'original_compatible',
+            stream: {
+              url: '/stream/direct-first-session',
+              protocol: 'http_progressive',
+              headers: {},
+              header_refresh: 'none'
+            }
+          }
+        }), { status: 201, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(null, { status: 404 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const listed = await built.app.inject({
+      method: 'GET',
+      url: addonUrl('/stream/movie/tt1234567.json')
+    });
+    expect(listed.json().streams).toHaveLength(1);
+    expect(listed.json().streams[0].name).toBe('Nuvi-Flow Auto');
+
+    const autoPath = new URL(listed.json().streams[0].url).pathname;
+    const planned = await built.app.inject({ method: 'GET', url: autoPath });
+    expect(planned.statusCode).toBe(302);
+    expect(planned.headers.location).toMatch(/^\/silo-media\//);
+    expect(fetchMock.mock.calls.filter(([url]) =>
+      String(url).endsWith('/playback/start')
+    )).toHaveLength(1);
+  });
+
+  it('serves exact partial content and invalid ranges', async () => {
+    const valid = await built.app.inject({ method: 'GET', url: `/media/${encodeURIComponent(token())}`, headers: { range: 'bytes=10-19' } });
+    expect(valid.statusCode).toBe(206);
+    expect(valid.headers['accept-ranges']).toBe('bytes');
+    expect(valid.headers['content-range']).toBe('bytes 10-19/36');
+    expect(valid.headers['content-length']).toBe('10');
+    expect(valid.headers['x-nuvi-flow-playback-id']).toMatch(
+      /^[0-9a-f-]{36}$/
+    );
+    expect(valid.body).toBe('abcdefghij');
+    expect(await built.playbackActivity.snapshot()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          playbackId: valid.headers['x-nuvi-flow-playback-id'],
+          mediaFileId: 'file1',
+          provider: 'nuvi-flow',
+          route: 'direct_file'
+        })
+      ])
+    );
+    const invalid = await built.app.inject({ method: 'GET', url: `/media/${encodeURIComponent(token())}`, headers: { range: 'bytes=100-' } });
+    expect(invalid.statusCode).toBe(416);
+    expect(invalid.headers['content-range']).toBe('bytes */36');
+  });
+
+  it('advertises and securely proxies exact Jellyfin direct play with ranges', async () => {
+    built.settings.set('jellyfinEnabled', 'true');
+    built.settings.set('jellyfinUrl', 'http://jellyfin:8096');
+    built.settings.set('jellyfinApiKey', 'private-jellyfin-key');
+    built.settings.set('jellyfinUserId', 'user-1');
+    vi.spyOn(built.playbackServers, 'resolveMapping').mockResolvedValue({
+      media_file_id: 'file1',
+      provider: 'jellyfin',
+      server_key: 'jellyfin:server-hash',
+      provider_item_id: 'item-1',
+      provider_media_id: 'source-1',
+      provider_stream_path: null,
+      status: 'mapped',
+      reason: null,
+      mapped_path: mediaPath,
+      updated_at: Date.now()
+    });
+    const fetchMock = vi.fn().mockImplementation(async (
+      input: string | URL | Request,
+      init?: RequestInit
+    ) => {
+      const url = String(input);
+      if (url.endsWith('/Items/item-1/PlaybackInfo')) {
+        return new Response(JSON.stringify({
+          PlaySessionId: 'jellyfin-play-1',
+          MediaSources: [{
+            Id: 'source-1',
+            SupportsDirectPlay: true,
+            SupportsDirectStream: true,
+            SupportsTranscoding: true,
+            TranscodingUrl: '/Videos/item-1/master.m3u8?api_key=never-visible'
+          }]
+        }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      if (url.includes('/Videos/item-1/stream')) {
+        expect(new Headers(init?.headers).get('range')).toBe('bytes=10-19');
+        return new Response('abcdefghij', {
+          status: 206,
+          headers: {
+            'content-type': 'video/mp4',
+            'content-range': 'bytes 10-19/36',
+            'content-length': '10',
+            'accept-ranges': 'bytes'
+          }
+        });
+      }
+      if (url.endsWith('/Sessions/Playing') ||
+        url.endsWith('/Sessions/Playing/Stopped')) {
+        return new Response(null, { status: 204 });
+      }
+      return new Response(null, { status: 404 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const listed = await built.app.inject({
+      method: 'GET',
+      url: addonUrl('/stream/movie/tt1234567.json'),
+      headers: { 'x-nuvi-flow-device-id': 'living-room' }
+    });
+    expect(listed.statusCode).toBe(200);
+    expect(listed.json().streams).toHaveLength(2);
+    expect(listed.json().streams[1]).toMatchObject({
+      name: 'Jellyfin Auto',
+      title: 'Jellyfin • direct/remux/audio/video fallback'
+    });
+    const negotiationPath = new URL(listed.json().streams[1].url).pathname;
+    const negotiated = await built.app.inject({
+      method: 'GET',
+      url: negotiationPath
+    });
+    expect(negotiated.statusCode).toBe(302);
+    expect(negotiated.headers.location).toMatch(/^\/jellyfin-media\//);
+    expect(negotiated.headers.location).not.toContain('private-jellyfin-key');
+
+    const proxied = await built.app.inject({
+      method: 'GET',
+      url: negotiated.headers.location!,
+      headers: { range: 'bytes=10-19' }
+    });
+    expect(proxied.statusCode).toBe(206);
+    expect(proxied.body).toBe('abcdefghij');
+    expect(proxied.headers['content-range']).toBe('bytes 10-19/36');
+    expect(proxied.headers['x-nuvi-flow-playback-id']).toBe(
+      negotiated.headers['x-nuvi-flow-playback-id']
+    );
+    const mediaCall = fetchMock.mock.calls.find(([input]) =>
+      String(input).includes('/Videos/item-1/stream')
+    )!;
+    expect(String(mediaCall[0])).not.toContain('private-jellyfin-key');
+    expect(new Headers(mediaCall[1]?.headers).get('X-Emby-Token'))
+      .toBe('private-jellyfin-key');
+    expect(await built.playbackActivity.snapshot()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          playbackId: negotiated.headers['x-nuvi-flow-playback-id'],
+          provider: 'jellyfin',
+          route: 'original_http'
+        })
+      ])
+    );
+    await built.jellyfinPlayback.stopPlayback(
+      String(negotiated.headers['x-nuvi-flow-playback-id'])
+    );
+  });
+
+  it('rewrites Jellyfin HLS children behind signed same-origin proxy URLs', async () => {
+    built.settings.set('jellyfinEnabled', 'true');
+    built.settings.set('jellyfinUrl', 'http://jellyfin:8096');
+    built.settings.set('jellyfinApiKey', 'private-jellyfin-key');
+    built.settings.set('jellyfinUserId', 'user-1');
+    vi.spyOn(built.playbackServers, 'resolveMapping').mockResolvedValue({
+      media_file_id: 'file1',
+      provider: 'jellyfin',
+      server_key: 'jellyfin:server-hash',
+      provider_item_id: 'item-1',
+      provider_media_id: 'source-1',
+      provider_stream_path: null,
+      status: 'mapped',
+      reason: null,
+      mapped_path: mediaPath,
+      updated_at: Date.now()
+    });
+    const fetchMock = vi.fn().mockImplementation(async (
+      input: string | URL | Request
+    ) => {
+      const url = String(input);
+      if (url.endsWith('/Items/item-1/PlaybackInfo')) {
+        return new Response(JSON.stringify({
+          PlaySessionId: 'jellyfin-play-hls',
+          MediaSources: [{
+            Id: 'source-1',
+            SupportsDirectPlay: false,
+            SupportsDirectStream: true,
+            SupportsTranscoding: true,
+            TranscodingSubProtocol: 'hls',
+            TranscodingUrl: '/Videos/item-1/hls1/main/master.m3u8?VideoCodec=h264&AudioCodec=aac&api_key=root-secret'
+          }]
+        }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      if (url.includes('/Videos/item-1/hls1/main/master.m3u8')) {
+        return new Response([
+          '#EXTM3U',
+          '#EXT-X-KEY:METHOD=AES-128,URI="key.bin?api_key=child-secret"',
+          '../0.ts?part=1'
+        ].join('\n'), {
+          status: 200,
+          headers: { 'content-type': 'application/vnd.apple.mpegurl' }
+        });
+      }
+      if (url.includes('/Videos/item-1/hls1/0.ts?part=1')) {
+        return new Response('segment-data', {
+          status: 200,
+          headers: { 'content-type': 'video/mp2t' }
+        });
+      }
+      if (url.endsWith('/Sessions/Playing') ||
+        url.endsWith('/Sessions/Playing/Stopped') ||
+        url.includes('/Videos/ActiveEncodings')) {
+        return new Response(null, { status: 204 });
+      }
+      return new Response(null, { status: 404 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const listed = await built.app.inject({
+      method: 'GET',
+      url: addonUrl('/stream/movie/tt1234567.json')
+    });
+    const negotiationPath = new URL(listed.json().streams[1].url).pathname;
+    const negotiated = await built.app.inject({
+      method: 'GET',
+      url: negotiationPath
+    });
+    const manifest = await built.app.inject({
+      method: 'GET',
+      url: negotiated.headers.location!
+    });
+    expect(manifest.statusCode).toBe(200);
+    expect(manifest.headers['content-type']).toContain('mpegurl');
+    expect(manifest.body).not.toContain('jellyfin:8096');
+    expect(manifest.body).not.toContain('api_key');
+    expect(manifest.body).not.toContain('secret');
+    const childPath = manifest.body.split('\n').find(line =>
+      line.startsWith('/jellyfin-media/')
+    );
+    expect(childPath).toBeTruthy();
+    const segment = await built.app.inject({ method: 'GET', url: childPath! });
+    expect(segment.statusCode).toBe(200);
+    expect(segment.body).toBe('segment-data');
+    const childCall = fetchMock.mock.calls.find(([input]) =>
+      String(input).includes('/Videos/item-1/hls1/0.ts')
+    )!;
+    expect(String(childCall[0])).toContain('part=1');
+    expect(String(childCall[0])).not.toContain('api_key');
+    await built.jellyfinPlayback.stopPlayback(
+      String(negotiated.headers['x-nuvi-flow-playback-id'])
+    );
+  });
+
+  it('proxies signed Silo media with server-side authentication', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        Buffer.from('test-segment'),
+        {
+          status: 200,
+          headers: {
+            'Content-Type': 'video/mp2t'
+          }
+        }
+      )
+    );
+
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { token } = createSiloMediaToken(
+      '/api/v1/playback/transcode/session-1/segment/seg_00000.ts',
+      Date.now() + 60_000,
+      secret
+    );
+
+    const response = await built.app.inject({
+      method: 'GET',
+      url:
+        `/silo-media/${encodeURIComponent(token)}`
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toBe('test-segment');
+
+    const [url, init] =
+      fetchMock.mock.calls[0] as [
+        string,
+        RequestInit
+      ];
+
+    expect(url).toBe(
+      'http://silo:8080/api/v1/playback/transcode/session-1/segment/seg_00000.ts'
+    );
+
+    const headers = new Headers(
+      init.headers
+    );
+
+    expect(
+      headers.get('Authorization')
+    ).toBe('Bearer test-silo-key');
+
+    expect(response.body).not.toContain(
+      'test-silo-key'
+    );
+  });
+
+  it('starts Silo transcoded HLS playback for an authorized media file', async () => {
+    built.settings.set(
+      'siloProfileId',
+      'profile-1'
+    );
+
+    built.settings.set(
+      'siloTranscodeQuality',
+      '1080p-medium'
+    );
+
+    const fetchMock = vi.fn().mockImplementation(
+      async (
+        url: string,
+        init?: RequestInit
+      ) => {
+        if (
+          url.endsWith(
+            '/api/v1/catalog/items/movie-tmdb-123/versions'
+          )
+        ) {
+          return new Response(
+            JSON.stringify([
+              {
+                file_id: 120,
+                file_path: mediaPath
+              }
+            ]),
+            {
+              status: 200,
+              headers: {
+                'Content-Type':
+                  'application/json'
+              }
+            }
+          );
+        }
+
+        if (
+          url.endsWith(
+            '/api/v1/playback/start'
+          )
+        ) {
+          expect(init?.method).toBe('POST');
+
+          const body = JSON.parse(
+            String(init?.body)
+          );
+
+          expect(body).toMatchObject({
+            protocol_version: 3,
+            file_id: 120,
+            profile_id: 'profile-1',
+            quality_preference:
+              '1080p-medium'
+          });
+
+          return new Response(
+            JSON.stringify({
+              protocol_version: 3,
+              server_features: [
+                'playback_plan_v3',
+                'header_authenticated_media_v1'
+              ],
+              outcome: 'playable',
+              session_id: 'session-1',
+              playback_plan: {
+                delivery:
+                  'server_transcode_hls',
+                stream: {
+                  url:
+                    '/playback/transcode/session-1/master.m3u8',
+                  protocol: 'hls',
+                  container: 'hls',
+                  mime_type:
+                    'application/vnd.apple.mpegurl',
+                  headers: {},
+                  header_refresh: 'none'
+                }
+              }
+            }),
+            {
+              status: 201,
+              headers: {
+                'Content-Type':
+                  'application/json'
+              }
+            }
+          );
+        }
+
+        return new Response(null, {
+          status: 404
+        });
+      }
+    );
+
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response =
+      await built.app.inject({
+        method: 'GET',
+        url:
+          `/silo-stream/${encodeURIComponent(token())}`
+      });
+
+    expect(response.statusCode).toBe(302);
+
+    expect(
+      response.headers.location
+    ).toMatch(
+      /^\/silo-media\//
+    );
+
+    expect(
+      response.headers.location
+    ).not.toContain(
+      'test-silo-key'
+    );
+  });
+
+  it('accepts an Auto HLS remux while retaining the 4K source ceiling', async () => {
+    built.settings.set('siloProfileId', 'profile-1');
+    built.settings.set('siloTranscodeQuality', 'auto');
+    built.database.sqlite.prepare(
+      "UPDATE media_files SET width=3840,height=2160,video_codec='h264',audio_codec='aac' WHERE id='file1'"
+    ).run();
+
+    const fetchMock = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/versions')) {
+        return new Response(JSON.stringify([{
+          file_id: 120,
+          file_path: mediaPath
+        }]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.endsWith('/playback/start')) {
+        const body = JSON.parse(String(init?.body));
+        expect(body.quality_preference).toBe('auto');
+        expect(body.bandwidth_estimate_kbps).toBeUndefined();
+        expect(body.bandwidth_cap_kbps).toBeUndefined();
+        expect(body.client_capabilities).toMatchObject({
+          max_resolution: '2160p',
+          codecs_video: ['h264'],
+          codecs_audio: ['aac'],
+          hdr: false
+        });
+        expect(Object.keys(body.client_playback_context.deliveries)).toEqual([
+          'original_http', 'progressive', 'hls'
+        ]);
+        return new Response(JSON.stringify({
+          protocol_version: 3,
+          server_features: ['playback_plan_v3'],
+          outcome: 'playable',
+          session_id: 'remux-session',
+          playback_plan: {
+            delivery: 'server_remux_hls',
+            decision_reason: 'container_normalization',
+            effective_recipe: {
+              video_codec: 'h264',
+              audio_codec: 'aac',
+              dynamic_range: 'sdr',
+              width: 3840,
+              height: 2160
+            },
+            stream: {
+              url: '/playback/transcode/remux-session/master.m3u8',
+              protocol: 'hls',
+              headers: {},
+              header_refresh: 'none'
+            }
+          }
+        }), { status: 201, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(null, { status: 404 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const streamUrl = `/silo-stream/${encodeURIComponent(token())}`;
+    const [response, coalesced] = await Promise.all([
+      built.app.inject({ method: 'GET', url: streamUrl }),
+      built.app.inject({ method: 'GET', url: streamUrl })
+    ]);
+
+    expect(response.statusCode).toBe(302);
+    expect(coalesced.statusCode).toBe(302);
+    expect(coalesced.headers.location).toBe(response.headers.location);
+    expect(coalesced.headers['x-nuvi-flow-playback-id']).toBe(
+      response.headers['x-nuvi-flow-playback-id']
+    );
+    expect(response.headers.location).toMatch(/^\/silo-media\//);
+  });
+
+  it('securely proxies an Auto original stream with byte ranges', async () => {
+    built.settings.set('siloProfileId', 'profile-1');
+    built.settings.set('siloTranscodeQuality', 'auto');
+
+    const fetchMock = vi.fn().mockImplementation(async (
+      url: string,
+      init?: RequestInit
+    ) => {
+      if (url.endsWith('/versions')) {
+        return new Response(JSON.stringify([{
+          file_id: 120,
+          file_path: mediaPath
+        }]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.endsWith('/playback/start')) {
+        return new Response(JSON.stringify({
+          protocol_version: 3,
+          server_features: ['playback_plan_v3'],
+          outcome: 'playable',
+          session_id: 'direct-session',
+          playback_plan: {
+            delivery: 'original_http',
+            stream: {
+              url: '/stream/direct-session',
+              protocol: 'http_progressive',
+              headers: {},
+              header_refresh: 'none'
+            }
+          }
+        }), { status: 201, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.endsWith('/api/v1/stream/direct-session')) {
+        const headers = new Headers(init?.headers);
+        expect(headers.get('range')).toBe('bytes=10-19');
+        expect(headers.get('authorization')).toBe('Bearer test-silo-key');
+        return new Response('abcdefghij', {
+          status: 206,
+          headers: {
+            'Content-Type': 'video/mp4',
+            'Content-Length': '10',
+            'Content-Range': 'bytes 10-19/100',
+            'Accept-Ranges': 'bytes'
+          }
+        });
+      }
+      return new Response(null, { status: 404 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const planned = await built.app.inject({
+      method: 'GET',
+      url: `/silo-stream/${encodeURIComponent(token())}`
+    });
+    expect(planned.statusCode).toBe(302);
+    expect(planned.headers.location).not.toContain('test-silo-key');
+
+    const streamed = await built.app.inject({
+      method: 'GET',
+      url: planned.headers.location!,
+      headers: { range: 'bytes=10-19' }
+    });
+    expect(streamed.statusCode).toBe(206);
+    expect(streamed.body).toBe('abcdefghij');
+    expect(streamed.headers['content-length']).toBe('10');
+    expect(streamed.headers['content-range']).toBe('bytes 10-19/100');
+    expect(streamed.headers['accept-ranges']).toBe('bytes');
+  });
+
+  it('proxies fallback media by opaque session token with byte ranges', async () => {
+    const expiresAt = Date.now() + 60_000;
+    const sessionId = '11111111-1111-4111-8111-111111111111';
+    const session = {
+      id: sessionId,
+      playbackId: 'fallback-playback',
+      upstreamUrl: 'https://cdn.example/movie.mkv?token=upstream-secret',
+      requestHeaders: {},
+      label: 'Cached 2160p',
+      candidates: [{
+        url: 'https://cdn.example/movie.mkv?token=upstream-secret',
+        label: 'Cached 2160p',
+        requestHeaders: {},
+        videoSizeBytes: null,
+        resolutionHeight: 2160
+      }],
+      candidateIndex: 0,
+      candidateVerified: false,
+      durationSeconds: 10_800,
+      createdAt: Date.now(),
+      lastAccess: Date.now(),
+      expiresAt,
+      maximumExpiresAt: expiresAt
+    };
+    vi.spyOn(built.fallbackAddon, 'getSession').mockReturnValue(session);
+    const fetchMedia = vi.spyOn(built.fallbackAddon, 'fetchMedia')
+      .mockImplementation(async (_session, init) => {
+        expect(new Headers(init.headers).get('range')).toBe('bytes=10-19');
+        return new Response('abcdefghij', {
+          status: 206,
+          headers: {
+            'Content-Type': 'video/mp4',
+            'Content-Length': '10',
+            'Content-Range': 'bytes 10-19/100',
+            'Accept-Ranges': 'bytes'
+          }
+        });
+      });
+    const { token: fallbackToken } = createFallbackMediaToken(
+      sessionId, expiresAt, secret
+    );
+    expect(fallbackToken).not.toContain('upstream-secret');
+    const response = await built.app.inject({
+      method: 'GET',
+      url: `/fallback-media/${encodeURIComponent(fallbackToken)}`,
+      headers: { range: 'bytes=10-19' }
+    });
+    expect(response.statusCode).toBe(206);
+    expect(response.body).toBe('abcdefghij');
+    expect(response.headers['content-range']).toBe('bytes 10-19/100');
+    expect(fetchMedia).toHaveBeenCalledOnce();
+  });
+
+  it('uses a safe fallback candidate before a likely Auto video transcode', async () => {
+    built.settings.set('siloProfileId', 'profile-1');
+    built.settings.set('siloTranscodeQuality', 'auto');
+    built.settings.set('fallbackAddonEnabled', 'true');
+    built.settings.set(
+      'fallbackAddonManifestUrl',
+      'https://aio.example/private-install/manifest.json'
+    );
+    built.database.sqlite.prepare(
+      "UPDATE media_files SET width=3840,height=2160,video_codec='hevc' WHERE id='file1'"
+    ).run();
+    const fetchMock = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const value = String(url);
+      if (value.includes('aio.example') && value.includes('/stream/movie/')) {
+        return new Response(JSON.stringify({
+          streams: [{
+            url: 'https://1.1.1.1/movie.mkv?token=server-only',
+            title: 'Cached 2160p BluRay'
+          }]
+        }), { status: 200 });
+      }
+      if (value.startsWith('https://1.1.1.1/')) {
+        expect(new Headers(init?.headers).get('range')).toBe('bytes=0-9');
+        return new Response('0123456789', {
+          status: 206,
+          headers: {
+            'Content-Type': 'video/x-matroska',
+            'Content-Length': '10',
+            'Content-Range': 'bytes 0-9/100',
+            'Accept-Ranges': 'bytes'
+          }
+        });
+      }
+      throw new Error(`Unexpected request host: ${new URL(value).host}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const planned = await built.app.inject({
+      method: 'GET',
+      url: `/silo-stream/${encodeURIComponent(token())}`
+    });
+    expect(planned.statusCode).toBe(302);
+    expect(planned.headers.location).toMatch(/^\/fallback-media\//);
+    expect(planned.headers.location).not.toContain('server-only');
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/playback/start')))
+      .toBe(false);
+
+    const streamed = await built.app.inject({
+      method: 'GET',
+      url: planned.headers.location!,
+      headers: { range: 'bytes=0-9' }
+    });
+    expect(streamed.statusCode).toBe(206);
+    expect(streamed.body).toBe('0123456789');
+  });
+
+  it('uses the enabled fallback addon when Silo reports temporary capacity exhaustion', async () => {
+    built.settings.set('siloProfileId', 'profile-1');
+    built.settings.set('siloTranscodeQuality', 'auto');
+    built.settings.set('fallbackAddonEnabled', 'true');
+    built.settings.set('fallbackAddonBeforeTranscode', 'false');
+    built.settings.set(
+      'fallbackAddonManifestUrl',
+      'https://aio.example/private-install/manifest.json'
+    );
+    const tryPlayback = vi.spyOn(built.fallbackAddon, 'tryPlayback')
+      .mockResolvedValue({
+        id: '11111111-1111-4111-8111-111111111111',
+        playbackId: 'capacity-fallback-playback',
+        upstreamUrl: 'https://cdn.example/private.mkv',
+        requestHeaders: {},
+        label: 'AIO 1080p',
+        candidates: [],
+        candidateIndex: 0,
+        candidateVerified: true,
+        durationSeconds: null,
+        deviceId: 'device_1234567890abcdef12345678',
+        mediaFileId: 'file1',
+        createdAt: Date.now(),
+        lastAccess: Date.now(),
+        expiresAt: Date.now() + 60_000,
+        maximumExpiresAt: Date.now() + 60_000
+      });
+    vi.stubGlobal('fetch', vi.fn(async (url: string | URL | Request) => {
+      const value = String(url);
+      if (value.endsWith('/versions')) {
+        return new Response(JSON.stringify([{
+          file_id: 120,
+          file_path: mediaPath
+        }]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (value.endsWith('/playback/start')) {
+        return new Response(JSON.stringify({
+          protocol_version: 3,
+          server_features: ['playback_plan_v3'],
+          outcome: 'terminal',
+          terminal: {
+            reason: 'route_capacity_unavailable',
+            message: 'No eligible node currently has capacity.',
+            retryable: true
+          }
+        }), { status: 201, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(null, { status: 404 });
+    }));
+
+    const response = await built.app.inject({
+      method: 'GET',
+      url: `/silo-stream/${encodeURIComponent(token())}`
+    });
+
+    expect(response.statusCode).toBe(302);
+    expect(response.headers.location).toMatch(/^\/fallback-media\//);
+    expect(response.headers['x-nuvi-flow-playback-id'])
+      .toBe('capacity-fallback-playback');
+    expect(tryPlayback).toHaveBeenCalledOnce();
+  });
+
+  it('returns a controlled retryable response when Silo and fallback capacity are unavailable', async () => {
+    built.settings.set('siloProfileId', 'profile-1');
+    built.settings.set('siloTranscodeQuality', 'auto');
+    built.settings.set('fallbackAddonEnabled', 'false');
+    vi.stubGlobal('fetch', vi.fn(async (url: string | URL | Request) => {
+      const value = String(url);
+      if (value.endsWith('/versions')) {
+        return new Response(JSON.stringify([{
+          file_id: 120,
+          file_path: mediaPath
+        }]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (value.endsWith('/playback/start')) {
+        return new Response(JSON.stringify({
+          protocol_version: 3,
+          server_features: ['playback_plan_v3'],
+          outcome: 'terminal',
+          terminal: {
+            reason: 'capacity_unavailable',
+            message: 'private upstream capacity detail',
+            retryable: true
+          }
+        }), { status: 201, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(null, { status: 404 });
+    }));
+
+    const response = await built.app.inject({
+      method: 'GET',
+      url: `/silo-stream/${encodeURIComponent(token())}`
+    });
+
+    expect(response.statusCode).toBe(503);
+    expect(response.headers['retry-after']).toBe('5');
+    expect(response.headers['cache-control']).toBe('no-store');
+    expect(response.json()).toEqual({
+      error: 'Playback capacity is temporarily unavailable. Try again shortly.'
+    });
+    expect(response.body).not.toContain('private upstream capacity detail');
+  });
+
+  it('does not impose the local test server 1080p ceiling on other Auto users', async () => {
+    built.settings.set('siloProfileId', 'profile-1');
+    built.settings.set('siloTranscodeQuality', 'auto');
+    built.database.sqlite.prepare(
+      "UPDATE media_files SET width=3840,height=2160,video_codec='hevc',audio_codec='truehd' WHERE id='file1'"
+    ).run();
+
+    let playbackAttemptId = '';
+    const fetchMock = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/versions')) {
+        return new Response(JSON.stringify([{
+          file_id: 120,
+          file_path: mediaPath
+        }]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.endsWith('/playback/start')) {
+        const body = JSON.parse(String(init?.body));
+        playbackAttemptId = body.playback_attempt_id;
+        return new Response(JSON.stringify({
+          protocol_version: 3,
+          server_features: ['playback_plan_v3'],
+          outcome: 'playable',
+          session_id: 'adaptive-session',
+          playback_plan: {
+            plan_id: 'plan:11111111111111111111111111111111',
+            plan_attempt_key: 'v3:1111111111111111',
+            delivery: 'server_transcode_hls',
+            selected_tracks: {},
+            timeline: { source_start_seconds: 0 },
+            effective_recipe: {
+              video_codec: 'h264',
+              audio_codec: 'aac',
+              dynamic_range: 'sdr',
+              width: 3840,
+              height: 2160
+            },
+            available_qualities: [
+              { label: 'original', height: 2160, preserves_source: true },
+              { label: '2160p-high', height: 2160, preserves_source: false },
+              { label: '1080p-high', height: 1080, preserves_source: false },
+              { label: '1080p-medium', height: 1080, preserves_source: false },
+              { label: '720p-high', height: 720, preserves_source: false }
+            ],
+            stream: {
+              url: '/playback/transcode/adaptive-session/original.m3u8',
+              protocol: 'hls',
+              headers: {},
+              header_refresh: 'none'
+            }
+          }
+        }), { status: 201, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.endsWith('/playback/adaptive-session/replan')) {
+        const body = JSON.parse(String(init?.body));
+        expect(body).toMatchObject({
+          operation: 'quality_change',
+          playback_attempt_id: playbackAttemptId,
+          failed_plan_id: 'plan:11111111111111111111111111111111',
+          plan_attempt_key: 'v3:1111111111111111',
+          attempted_plan_keys: [],
+          attempt_count: 1,
+          quality_preference: '1080p-medium'
+        });
+        return new Response(JSON.stringify({
+          protocol_version: 3,
+          server_features: ['playback_plan_v3'],
+          outcome: 'playable',
+          session_id: 'adaptive-session',
+          playback_plan: {
+            plan_id: 'plan:22222222222222222222222222222222',
+            plan_attempt_key: 'v3:2222222222222222',
+            delivery: 'server_transcode_hls',
+            effective_recipe: {
+              video_codec: 'h264',
+              audio_codec: 'aac',
+              dynamic_range: 'sdr',
+              width: 1920,
+              height: 1080
+            },
+            stream: {
+              url: '/playback/transcode/adaptive-session/1080p-medium.m3u8',
+              protocol: 'hls',
+              headers: {},
+              header_refresh: 'none'
+            }
+          }
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(null, { status: 404 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await built.app.inject({
+      method: 'GET',
+      url: `/silo-stream/${encodeURIComponent(token())}`
+    });
+
+    expect(response.statusCode).toBe(302);
+    const encodedToken = response.headers.location?.split('/').at(-1) || '';
+    expect(verifySiloMediaToken(
+      decodeURIComponent(encodedToken),
+      secret
+    )?.path).toBe(
+      '/api/v1/playback/transcode/adaptive-session/original.m3u8'
+    );
+    expect(fetchMock.mock.calls.filter(([url]) =>
+      String(url).endsWith('/replan')
+    )).toHaveLength(0);
+    expect(fetchMock.mock.calls.filter(([url]) =>
+      String(url).endsWith('/playback/start')
+    )).toHaveLength(1);
+  });
+
+  it('coalesces simultaneous Silo playback requests and reuses the session', async () => {
+    built.settings.set(
+      'siloProfileId',
+      'profile-1'
+    );
+
+    const fetchMock = vi.fn().mockImplementation(
+      async (url: string) => {
+        if (
+          url.endsWith(
+            '/api/v1/catalog/items/movie-tmdb-123/versions'
+          )
+        ) {
+          return new Response(
+            JSON.stringify([
+              {
+                file_id: 120,
+                file_path: mediaPath
+              }
+            ]),
+            {
+              status: 200,
+              headers: {
+                'Content-Type':
+                  'application/json'
+              }
+            }
+          );
+        }
+
+        if (
+          url.endsWith(
+            '/api/v1/playback/start'
+          )
+        ) {
+          await new Promise(resolve =>
+            setTimeout(resolve, 20)
+          );
+
+          return new Response(
+            JSON.stringify({
+              protocol_version: 3,
+              server_features: [
+                'playback_plan_v3'
+              ],
+              outcome: 'playable',
+              session_id: 'shared-session',
+              playback_plan: {
+                delivery:
+                  'server_transcode_hls',
+                stream: {
+                  url:
+                    '/playback/transcode/shared-session/master.m3u8',
+                  protocol: 'hls',
+                  headers: {},
+                  header_refresh: 'none'
+                }
+              }
+            }),
+            {
+              status: 201,
+              headers: {
+                'Content-Type':
+                  'application/json'
+              }
+            }
+          );
+        }
+
+        return new Response(null, {
+          status: 404
+        });
+      }
+    );
+
+    vi.stubGlobal('fetch', fetchMock);
+
+    const createSiloStreamUrl = async () => {
+      const response = await built.app.inject({
+        method: 'GET',
+        url: addonUrl('/stream/movie/tt1234567.json'),
+        headers: {
+          'user-agent': 'Nuvio Test Client',
+          'x-stremio-client': 'Nuvio',
+          'x-stremio-version': '1.2.3'
+        }
+      });
+
+      expect(response.statusCode).toBe(200);
+      return new URL(response.json().streams[1].url).pathname;
+    };
+
+    const firstStreamUrl = await createSiloStreamUrl();
+    const secondStreamUrl = await createSiloStreamUrl();
+
+    expect(firstStreamUrl).not.toBe(secondStreamUrl);
+
+    const [first, second] = await Promise.all([
+      built.app.inject({
+        method: 'GET',
+        url: firstStreamUrl,
+        headers: {
+          'user-agent': 'Nuvio Test Client'
+        }
+      }),
+      built.app.inject({
+        method: 'GET',
+        url: secondStreamUrl,
+        headers: {
+          'user-agent': 'Nuvio Test Client'
+        }
+      })
+    ]);
+
+    expect(first.statusCode).toBe(302);
+    expect(second.statusCode).toBe(302);
+    const upstreamPath = (location: string | undefined) => {
+      const encodedToken = location?.split('/').at(-1) || '';
+      return verifySiloMediaToken(
+        decodeURIComponent(encodedToken),
+        secret
+      )?.path;
+    };
+
+    expect(upstreamPath(first.headers.location)).toBe(
+      upstreamPath(second.headers.location)
+    );
+    expect(
+      first.headers['x-nuvi-flow-playback-id']
+    ).toBe(
+      second.headers['x-nuvi-flow-playback-id']
+    );
+
+    const versionRequests = fetchMock.mock.calls
+      .filter(([url]) => String(url).endsWith(
+        '/api/v1/catalog/items/movie-tmdb-123/versions'
+      ));
+    const startRequests = fetchMock.mock.calls
+      .filter(([url]) => String(url).endsWith(
+        '/api/v1/playback/start'
+      ));
+
+    expect(versionRequests).toHaveLength(1);
+    expect(startRequests).toHaveLength(1);
+
+    const thirdStreamUrl = await createSiloStreamUrl();
+    const reused = await built.app.inject({
+      method: 'GET',
+      url: thirdStreamUrl,
+      headers: {
+        'user-agent': 'Nuvio Test Client'
+      }
+    });
+
+    expect(reused.statusCode).toBe(302);
+    expect(upstreamPath(reused.headers.location)).toBe(
+      upstreamPath(first.headers.location)
+    );
+    expect(
+      reused.headers['x-nuvi-flow-playback-id']
+    ).toBe(
+      first.headers['x-nuvi-flow-playback-id']
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('rewrites Silo HLS segment URLs through the signed proxy', async () => {
+    const arrayBufferSpy = vi.fn(async () => {
+      throw new Error('segments must not be buffered');
+    });
+    const fetchMock = vi.fn().mockImplementation(
+      async (url: string, init?: RequestInit) => {
+        if (url.endsWith('/master.m3u8')) {
+          return new Response(
+            '#EXTM3U\n#EXT-X-MAP:URI="segment/init.mp4?generation=2"\n#EXTINF:2.000000,\nsegment/seg_00000.ts?generation=2\n',
+            {
+              status: 200,
+              headers: {
+                'Content-Type':
+                  'application/vnd.apple.mpegurl'
+              }
+            }
+          );
+        }
+
+        if (url.includes('/segment/seg_00000.ts')) {
+          expect(new Headers(init?.headers).get('range')).toBe('bytes=0-11');
+          const response = new Response(Buffer.from('test-segment'), {
+            status: 206,
+            headers: {
+              'Content-Type': 'video/mp2t',
+              'Content-Length': '12',
+              'Content-Range': 'bytes 0-11/12',
+              'Accept-Ranges': 'bytes'
+            }
+          });
+          response.arrayBuffer = arrayBufferSpy;
+          return response;
+        }
+
+        return new Response(null, {
+          status: 404
+        });
+      }
+    );
+
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { token } = createSiloMediaToken(
+      '/api/v1/playback/transcode/session-1/master.m3u8',
+      Date.now() + 60_000,
+      secret
+    );
+
+    const manifestResponse =
+      await built.app.inject({
+        method: 'GET',
+        url:
+          `/silo-media/${encodeURIComponent(token)}`
+      });
+
+    expect(
+      manifestResponse.statusCode
+    ).toBe(200);
+
+    const lines =
+      manifestResponse.body
+        .split('\n')
+        .map(line => line.trim());
+
+    const segmentUrl = lines.find(
+      line =>
+        line &&
+        !line.startsWith('#')
+    );
+    const mapUrl = manifestResponse.body.match(/URI="([^"]+)"/)?.[1];
+
+    expect(segmentUrl).toMatch(
+      /^\/silo-media\//
+    );
+
+    expect(segmentUrl).not.toContain(
+      'test-silo-key'
+    );
+    expect(mapUrl).toMatch(/^\/silo-media\//);
+
+    const mapToken = decodeURIComponent(mapUrl!.split('/').at(-1)!);
+    expect(verifySiloMediaToken(mapToken, secret)?.path).toBe(
+      '/api/v1/playback/transcode/session-1/segment/init.mp4?generation=2'
+    );
+
+    const segmentResponse =
+      await built.app.inject({
+        method: 'GET',
+        url: segmentUrl!,
+        headers: { range: 'bytes=0-11' }
+      });
+
+    expect(
+      segmentResponse.statusCode
+    ).toBe(206);
+    expect(segmentResponse.headers['content-range']).toBe('bytes 0-11/12');
+    expect(segmentResponse.headers['accept-ranges']).toBe('bytes');
+    expect(segmentResponse.headers['content-length']).toBe('12');
+
+    expect(segmentResponse.body).toBe(
+      'test-segment'
+    );
+    expect(arrayBufferSpy).not.toHaveBeenCalled();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://silo:8080/api/v1/playback/transcode/session-1/segment/seg_00000.ts?generation=2',
+      expect.any(Object)
+    );
+  });
+
+  it('rejects an HLS manifest that points outside the Silo playback session', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(
+      '#EXTM3U\nhttps://internal.example/api/v1/playback/session/segment.ts\n',
+      { status: 200, headers: { 'Content-Type': 'application/vnd.apple.mpegurl' } }
+    )));
+    const { token } = createSiloMediaToken(
+      '/api/v1/playback/transcode/session-1/master.m3u8',
+      Date.now() + 60_000,
+      secret
+    );
+
+    const response = await built.app.inject({
+      method: 'GET',
+      url: `/silo-media/${encodeURIComponent(token)}`
+    });
+
+    expect(response.statusCode).toBe(502);
+    expect(response.body).not.toContain('internal.example');
+  });
+
+  it('proxies Silo media HEAD and unsatisfied range responses', async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      expect(init?.method).toBe('HEAD');
+      expect(new Headers(init?.headers).get('range')).toBe('bytes=99-100');
+      return new Response(null, {
+        status: 416,
+        headers: {
+          'Content-Range': 'bytes */12',
+          'Accept-Ranges': 'bytes',
+          'Content-Length': '0'
+        }
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const { token } = createSiloMediaToken(
+      '/api/v1/playback/transcode/session-1/segment/seg_00000.ts',
+      Date.now() + 60_000,
+      secret
+    );
+
+    const response = await built.app.inject({
+      method: 'HEAD',
+      url: `/silo-media/${encodeURIComponent(token)}`,
+      headers: { range: 'bytes=99-100' }
+    });
+
+    expect(response.statusCode).toBe(416);
+    expect(response.headers['content-range']).toBe('bytes */12');
+    expect(response.headers['accept-ranges']).toBe('bytes');
+    expect(response.body).toBe('');
+  });
+
+  it('returns GET-equivalent headers and no body for HEAD', async () => {
+    const response = await built.app.inject({ method: 'HEAD', url: `/media/${encodeURIComponent(token())}`, headers: { range: 'bytes=5-' } });
+    expect(response.statusCode).toBe(206);
+    expect(response.headers['content-range']).toBe('bytes 5-35/36');
+    expect(response.headers['content-length']).toBe('31');
+    expect(response.body).toBe('');
+  });
+});

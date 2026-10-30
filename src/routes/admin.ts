@@ -1,0 +1,1420 @@
+import { randomUUID } from 'node:crypto';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import type { AppConfig } from '../config.js';
+import type { AppDatabase } from '../db/index.js';
+import { adminHtml, loginHtml } from '../admin/assets.js';
+import {
+  detectAddonIconType,
+  MAX_ADDON_ICON_BYTES,
+  removeAddonIcon,
+  writeAddonIcon
+} from '../lib/branding.js';
+import { createSessionToken, createStreamToken, hashPassword, verifyPassword, verifySessionToken, type AdminSession } from '../lib/security.js';
+import { parseJson } from '../lib/json.js';
+import type { MediaFileRow, MediaItemRow, MediaType } from '../types.js';
+import type { DeviceCapabilityCategory } from '../types.js';
+import type { MediaScanner } from '../services/scanner.js';
+import { RadarrClient } from '../services/radarr.js';
+import { SonarrClient } from '../services/sonarr.js';
+import type { SiloService } from '../services/silo-service.js';
+import { siloQualityPreferences } from '../services/playback/playback-policy.js';
+import type { RequestService } from '../services/requester.js';
+import type { SettingsService } from '../services/settings.js';
+import type { TmdbService } from '../services/tmdb.js';
+import type { MetadataSearchResult } from '../services/tmdb.js';
+import { buildInfo } from '../lib/build-info.js';
+import type { FallbackAddonService } from '../services/playback/fallback-addon.js';
+import type {
+  PlaybackActivityRecord,
+  PlaybackActivityService
+} from '../services/playback/playback-activity.js';
+import type {
+  DeviceCapabilityStore,
+  PlaybackDeviceCapabilitySummary
+} from '../services/playback/device-capabilities.js';
+import type {
+  PlaybackOutcome,
+  PlaybackOutcomeStore
+} from '../services/playback/playback-outcomes.js';
+import type { PlaybackService } from '../services/playback/playback-service.js';
+import type { SystemDiagnosticsService } from '../services/system-diagnostics.js';
+import type { DatabaseBackupService } from '../services/database-backups.js';
+import type { PlaybackServersService } from '../services/playback-servers.js';
+import type { JellyfinPlaybackService } from '../services/playback/jellyfin-playback.js';
+import {
+  parsePathPrefixMappings,
+  PathPrefixMappingError
+} from '../services/playback-server-mappings.js';
+
+const COOKIE_NAME = 'nuviflow_admin';
+
+const deviceCapabilityOptions: Array<{
+  category: DeviceCapabilityCategory;
+  capability: string;
+  label: string;
+  group: string;
+}> = [
+  { category: 'max_resolution', capability: '2160p', label: '4K / 2160p', group: 'Video' },
+  { category: 'video_codec', capability: 'hevc', label: 'HEVC / H.265', group: 'Video' },
+  { category: 'video_codec', capability: 'av1', label: 'AV1', group: 'Video' },
+  { category: 'video_codec', capability: 'vp9', label: 'VP9', group: 'Video' },
+  { category: 'container', capability: 'mkv', label: 'MKV', group: 'Containers' },
+  { category: 'container', capability: 'webm', label: 'WebM', group: 'Containers' },
+  { category: 'container', capability: 'mpegts', label: 'MPEG-TS', group: 'Containers' },
+  { category: 'hdr', capability: 'hdr10', label: 'HDR10', group: 'HDR' },
+  { category: 'hdr', capability: 'hdr10+', label: 'HDR10+', group: 'HDR' },
+  { category: 'hdr', capability: 'hlg', label: 'HLG', group: 'HDR' },
+  { category: 'hdr', capability: 'dolby_vision', label: 'Dolby Vision (common profiles)', group: 'HDR' },
+  { category: 'hdr', capability: 'dolby_vision_profile_5', label: 'Dolby Vision profile 5', group: 'HDR' },
+  { category: 'hdr', capability: 'dolby_vision_profile_7', label: 'Dolby Vision profile 7', group: 'HDR' },
+  { category: 'hdr', capability: 'dolby_vision_profile_8', label: 'Dolby Vision profile 8', group: 'HDR' },
+  { category: 'audio_codec', capability: 'ac3', label: 'AC-3', group: 'Audio' },
+  { category: 'audio_codec', capability: 'eac3', label: 'E-AC-3', group: 'Audio' },
+  { category: 'audio_codec', capability: 'opus', label: 'Opus', group: 'Audio' },
+  { category: 'audio_codec', capability: 'dts', label: 'DTS', group: 'Audio' },
+  { category: 'audio_codec', capability: 'dts-hd', label: 'DTS-HD', group: 'Audio' },
+  { category: 'audio_codec', capability: 'truehd', label: 'TrueHD', group: 'Audio' }
+];
+
+function publicPlaybackDevice(
+  device: PlaybackDeviceCapabilitySummary
+): Record<string, unknown> {
+  return {
+    id: device.id,
+    label: `Device ${device.id.slice(-8)}`,
+    identitySource: device.identitySource,
+    firstSeenAt: device.firstSeenAt,
+    lastSeenAt: device.lastSeenAt,
+    revision: device.revision,
+    capabilities: device.capabilities.map(capability => ({
+      category: capability.category,
+      capability: capability.capability,
+      state: capability.state,
+      evidence: capability.evidence,
+      confidence: capability.confidence,
+      successCount: capability.successCount,
+      failureCount: capability.failureCount,
+      lastObservedAt: capability.lastObservedAt
+    }))
+  };
+}
+
+type AdminMediaFileRow = MediaFileRow & {
+  display_title?: string | null;
+  stremio_id?: string | null;
+  item_title?: string | null;
+  item_year?: number | null;
+  item_tmdb_id?: number | null;
+  item_description?: string | null;
+  item_poster?: string | null;
+  item_background?: string | null;
+};
+
+const adminFileSelect = `SELECT mf.*,mi.display_title,mi.stremio_id,mi.title item_title,mi.year item_year,
+  mi.tmdb_id item_tmdb_id,mi.description item_description,mi.poster item_poster,mi.background item_background
+  FROM media_files mf LEFT JOIN media_items mi ON mi.id=mf.media_item_id`;
+
+function sessionFor(request: FastifyRequest, config: AppConfig): AdminSession | null {
+  return verifySessionToken(request.cookies[COOKIE_NAME], config.sessionSecret);
+}
+
+function requireAdmin(config: AppConfig, csrf = false) {
+  return async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    const session = sessionFor(request, config);
+    if (!session) {
+      reply.code(401).send({ error: 'Authentication required' });
+      return;
+    }
+    if (csrf && request.headers['x-csrf-token'] !== session.csrf) {
+      reply.code(403).send({ error: 'Invalid CSRF token' });
+    }
+  };
+}
+
+function publicFile(row: AdminMediaFileRow): Record<string, unknown> {
+  const hasMatch = Boolean(row.media_item_id && row.stremio_id && !['ignored', 'error'].includes(row.status));
+  const effectiveStatus = row.status === 'ignored' || row.status === 'error'
+    ? row.status
+    : hasMatch ? 'matched' : row.status === 'matched' ? 'unmatched' : row.status;
+  return {
+    id: row.id,
+    libraryType: row.library_type,
+    relativePath: row.relative_path,
+    size: row.size,
+    mtimeMs: row.mtime_ms,
+    durationSeconds: row.duration_seconds,
+    bitrate: row.bitrate,
+    videoCodec: row.video_codec,
+    audioCodec: row.audio_codec,
+    width: row.width,
+    height: row.height,
+    frameRate: row.frame_rate,
+    audioChannels: row.audio_channels,
+    audioTracks: parseJson(row.audio_tracks_json, []),
+    audioLanguages: parseJson(row.audio_languages_json, []),
+    subtitleTracks: parseJson(row.subtitle_tracks_json, []),
+    parsedTitle: row.parsed_title,
+    parsedYear: row.parsed_year,
+    edition: row.edition,
+    quality: row.quality,
+    source: row.source,
+    season: row.season,
+    episodeStart: row.episode_start,
+    episodeEnd: row.episode_end,
+    confidence: row.confidence,
+    manualOverride: Boolean(row.manual_override),
+    status: effectiveStatus,
+    compatibilityWarning: row.compatibility_warning,
+    error: row.error,
+    addedAt: row.added_at,
+    updatedAt: row.updated_at,
+    displayTitle: hasMatch ? row.display_title || null : null,
+    stremioId: hasMatch ? row.stremio_id || null : null,
+    mediaItemId: hasMatch ? row.media_item_id : null,
+    poster: hasMatch ? row.item_poster || null : null,
+    background: hasMatch ? row.item_background || null : null,
+    currentMatch: hasMatch ? {
+      title: row.display_title || row.item_title || row.parsed_title || 'Untitled',
+      year: row.item_year || null,
+      tmdbId: row.item_tmdb_id || null,
+      stremioId: row.stremio_id,
+      description: row.item_description || null,
+      poster: row.item_poster || null
+    } : null
+  };
+}
+
+function fileDetail(database: AppDatabase, id: string): Record<string, unknown> | null {
+  const row = database.sqlite.prepare(`${adminFileSelect} WHERE mf.id=?`).get(id) as AdminMediaFileRow | undefined;
+  if (!row) return null;
+  const subtitles = database.sqlite.prepare('SELECT id,relative_path relativePath,language,format,size FROM external_subtitles WHERE media_file_id=?').all(id);
+  return { ...publicFile(row), probe: parseJson(row.probe_json, {}), subtitles };
+}
+
+function publicPlaybackActivity(
+  activity: PlaybackActivityRecord,
+  file?: AdminMediaFileRow
+): Record<string, unknown> {
+  const directLike = [
+    'direct_file',
+    'original_http',
+    'server_remux_progressive',
+    'server_remux_hls'
+  ].includes(activity.route);
+  const source = file
+    ? {
+        kind: 'local',
+        quality: file.quality || null,
+        width: file.width,
+        height: file.height,
+        videoCodec: file.video_codec,
+        audioCodec: file.audio_codec
+      }
+    : {
+        kind: 'external',
+        quality: null,
+        width: null,
+        height: activity.target.height,
+        videoCodec: null,
+        audioCodec: null
+      };
+  const title = file
+    ? file.display_title || file.item_title || file.parsed_title || 'Unknown media'
+    : activity.mediaId || 'External media';
+
+  return {
+    playbackId: activity.playbackId,
+    title,
+    mediaType: activity.mediaType || file?.library_type || null,
+    season: activity.season,
+    episode: activity.episode,
+    deviceLabel: activity.deviceId
+      ? `Device ${activity.deviceId.slice(-8)}`
+      : 'Unknown device',
+    provider: activity.provider,
+    route: activity.route,
+    state: activity.state,
+    stoppable: activity.stoppable,
+    source,
+    target: {
+      ...activity.target,
+      quality: activity.target.quality || (directLike ? source.quality : null),
+      width: activity.target.width ?? (directLike ? source.width : null),
+      height: activity.target.height ?? (directLike ? source.height : null),
+      videoCodec: activity.target.videoCodec || (directLike ? source.videoCodec : null),
+      audioCodec: activity.target.audioCodec || (directLike ? source.audioCodec : null)
+    },
+    fallback: activity.fallback,
+    candidate: activity.candidate,
+    createdAt: activity.createdAt,
+    lastActivityAt: activity.lastActivityAt,
+    expiresAt: activity.expiresAt
+  };
+}
+
+function publicPlaybackOutcome(
+  outcome: PlaybackOutcome,
+  file?: AdminMediaFileRow
+): Record<string, unknown> {
+  return {
+    playbackId: outcome.playbackId,
+    title: file
+      ? file.display_title || file.item_title || file.parsed_title || 'Unknown media'
+      : outcome.mediaId || 'External media',
+    mediaType: outcome.mediaType || file?.library_type || null,
+    season: outcome.season,
+    episode: outcome.episode,
+    deviceLabel: outcome.deviceId
+      ? `Device ${outcome.deviceId.slice(-8)}`
+      : 'Unknown device',
+    provider: outcome.provider,
+    route: outcome.route,
+    code: outcome.code,
+    level: outcome.level,
+    failureDomain: outcome.failureDomain,
+    reason: outcome.reason,
+    httpStatus: outcome.httpStatus,
+    capabilityEvidence: false,
+    firstObservedAt: outcome.firstObservedAt,
+    lastObservedAt: outcome.lastObservedAt
+  };
+}
+
+function tmdbFailure(error: unknown, action: string): { status: number; message: string } {
+  const detail = error instanceof Error ? error.message : '';
+  if (/HTTP (401|403)/i.test(detail)) return { status: 400, message: 'The TMDB API key was rejected. Check the key in Settings and try again.' };
+  if (/timeout|aborted/i.test(detail)) return { status: 504, message: `${action} timed out. Check the network connection and try again.` };
+  return { status: 502, message: `${action} failed. Check the network connection and try again.` };
+}
+
+export function registerAdminRoutes(
+  app: FastifyInstance,
+  database: AppDatabase,
+  settings: SettingsService,
+  scanner: MediaScanner,
+  tmdb: TmdbService,
+  requester: RequestService,
+  config: AppConfig,
+  silo: SiloService,
+  playbackServers: PlaybackServersService,
+  jellyfinPlayback: JellyfinPlaybackService,
+  fallbackAddon: FallbackAddonService,
+  playback: PlaybackService,
+  playbackActivity: PlaybackActivityService,
+  deviceCapabilities: DeviceCapabilityStore,
+  playbackOutcomes: PlaybackOutcomeStore,
+  databaseBackups: DatabaseBackupService,
+  systemDiagnostics: SystemDiagnosticsService
+): void {
+  app.get('/admin/login', async (request, reply) => {
+    const nextUrl = String((request.query as any)?.next || '/downloads').startsWith('/')
+      ? String((request.query as any)?.next || '/downloads')
+      : '/downloads';
+    const session = sessionFor(request, config);
+    if (session) {
+      const currentCookie = request.cookies[COOKIE_NAME];
+      if (currentCookie) {
+        reply.setCookie(COOKIE_NAME, currentCookie, {
+          path: '/', httpOnly: true, sameSite: 'lax', secure: settings.baseUrl.startsWith('https://'), maxAge: 12 * 60 * 60
+        });
+      }
+      reply.clearCookie(COOKIE_NAME, { path: '/admin' });
+      return reply.redirect(nextUrl);
+    }
+    return reply.type('text/html; charset=utf-8').send(loginHtml('', nextUrl));
+  });
+
+  app.post('/admin/login', { config: { rateLimit: { max: 20, timeWindow: '15 minutes' } } }, async (request, reply) => {
+    const body = request.body as { username?: string; password?: string; next?: string };
+    const storedHash = settings.adminPasswordHash;
+    const valid = typeof body?.username === 'string' && typeof body?.password === 'string'
+      && body.username === settings.adminUsername && Boolean(storedHash) && await verifyPassword(body.password, storedHash!);
+    const nextUrl = String(body?.next || (request.query as any)?.next || '/downloads').startsWith('/')
+      ? String(body?.next || (request.query as any)?.next || '/downloads')
+      : '/downloads';
+    if (!valid) return reply.code(401).type('text/html; charset=utf-8').send(loginHtml('The username or password is incorrect.', nextUrl));
+    const { token } = createSessionToken(body.username!, config.sessionSecret);
+    reply.clearCookie(COOKIE_NAME, { path: '/admin' });
+    return reply.setCookie(COOKIE_NAME, token, {
+      path: '/', httpOnly: true, sameSite: 'lax', secure: settings.baseUrl.startsWith('https://'), maxAge: 12 * 60 * 60
+    }).redirect(nextUrl);
+  });
+
+  app.get('/admin', async (request, reply) => {
+    const session = sessionFor(request, config);
+    if (!session) return reply.redirect('/admin/login?next=/admin');
+    return reply.type('text/html; charset=utf-8').header('Cache-Control', 'no-store').send(adminHtml(session.csrf));
+  });
+
+  app.post('/admin/logout', async (_request, reply) => {
+    reply.clearCookie(COOKIE_NAME, { path: '/admin' });
+    return reply.clearCookie(COOKIE_NAME, { path: '/' }).send({ ok: true });
+  });
+
+  app.get('/admin/api/state', { preHandler: requireAdmin(config) }, async (_request, reply) => {
+    const files = database.sqlite.prepare(`${adminFileSelect} ORDER BY mf.added_at DESC LIMIT 5000`).all() as AdminMediaFileRow[];
+    const counts = {
+      movies: (database.sqlite.prepare(`SELECT COUNT(DISTINCT media_item_id) count FROM media_files WHERE library_type='movie' AND status NOT IN ('ignored','error') AND media_item_id IS NOT NULL`).get() as any).count,
+      series: (database.sqlite.prepare(`SELECT COUNT(DISTINCT media_item_id) count FROM media_files WHERE library_type='series' AND status NOT IN ('ignored','error') AND media_item_id IS NOT NULL`).get() as any).count,
+      episodes: (database.sqlite.prepare(`SELECT COALESCE(SUM(episode_end-episode_start+1),0) count FROM media_files WHERE library_type='series' AND status NOT IN ('ignored','error') AND media_item_id IS NOT NULL`).get() as any).count,
+      unmatched: (database.sqlite.prepare(`SELECT COUNT(*) count FROM media_files WHERE status NOT IN ('ignored','error') AND media_item_id IS NULL`).get() as any).count,
+      errors: (database.sqlite.prepare(`SELECT COUNT(*) count FROM media_files WHERE status='error'`).get() as any).count
+    };
+    const logs = database.sqlite.prepare(`SELECT id,mode,status,discovered,processed,matched,unmatched,errors,
+      started_at startedAt,finished_at finishedAt,message FROM scan_runs ORDER BY started_at DESC LIMIT 100`).all();
+    const publicFiles = files.map(publicFile);
+    return reply.header('Cache-Control', 'no-store').send({
+      counts,
+      files: publicFiles,
+      recent: publicFiles.slice(0, 12),
+      logs,
+      settings: settings.publicView(),
+      build: buildInfo(),
+      scanning: scanner.isRunning(),
+      scan: scanner.snapshot()
+    });
+  });
+
+  app.get('/admin/api/scans', {
+    preHandler: requireAdmin(config),
+    config: { rateLimit: { max: 120, timeWindow: '1 minute' } }
+  }, async (_request, reply) => {
+    const recent = database.sqlite.prepare(
+      `SELECT id,mode,status,discovered,processed,matched,unmatched,errors,
+       started_at startedAt,finished_at finishedAt,message
+       FROM scan_runs
+       ORDER BY started_at DESC
+       LIMIT 100`
+    ).all();
+    return reply.header('Cache-Control', 'no-store').send({
+      current: scanner.snapshot(),
+      recent
+    });
+  });
+
+  app.get('/admin/api/system-health', {
+    preHandler: requireAdmin(config),
+    config: { rateLimit: { max: 12, timeWindow: '1 minute' } }
+  }, async (request, reply) => {
+    const query = request.query as { refresh?: string };
+    const snapshot = await systemDiagnostics.snapshot(
+      query.refresh === '1' || query.refresh === 'true'
+    );
+    return reply.header('Cache-Control', 'no-store').send(snapshot);
+  });
+
+  app.get('/admin/api/backups', {
+    preHandler: requireAdmin(config),
+    config: { rateLimit: { max: 60, timeWindow: '1 minute' } }
+  }, async (_request, reply) => {
+    const snapshot = await databaseBackups.snapshot();
+    return reply.header('Cache-Control', 'no-store').send(snapshot);
+  });
+
+  app.post('/admin/api/backups', {
+    preHandler: requireAdmin(config, true),
+    config: { rateLimit: { max: 6, timeWindow: '1 minute' } }
+  }, async (_request, reply) => {
+    const created = await databaseBackups.create('manual');
+    systemDiagnostics.invalidate();
+    const snapshot = await databaseBackups.snapshot();
+    return reply.header('Cache-Control', 'no-store').send({
+      ...snapshot,
+      created
+    });
+  });
+
+  app.get('/admin/api/backups/:id/download', {
+    preHandler: requireAdmin(config),
+    config: { rateLimit: { max: 12, timeWindow: '1 minute' } }
+  }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const opened = await databaseBackups.open(id);
+    if (!opened) {
+      return reply.code(404).send({ error: 'Database backup not found.' });
+    }
+    const timestamp = new Date(opened.backup.createdAt)
+      .toISOString()
+      .replaceAll(':', '-')
+      .replace('.000Z', 'Z');
+    return reply
+      .header('Cache-Control', 'no-store')
+      .header('X-Content-Type-Options', 'nosniff')
+      .header('Content-Security-Policy', "default-src 'none'")
+      .header('Content-Disposition', `attachment; filename="nuvi-flow-backup-${timestamp}.sqlite"`)
+      .header('Content-Length', String(opened.backup.sizeBytes))
+      .type('application/vnd.sqlite3')
+      .send(opened.stream);
+  });
+
+  app.get('/admin/api/activity', {
+    preHandler: requireAdmin(config)
+  }, async (_request, reply) => {
+    const activity = await playbackActivity.snapshot();
+    const outcomes = playbackOutcomes.recent(50);
+    const operations = playback.operationsSnapshot();
+    const fileById = new Map<string, AdminMediaFileRow>();
+    const selectFile = database.sqlite.prepare(`${adminFileSelect} WHERE mf.id=?`);
+
+    for (const entry of [...activity, ...outcomes]) {
+      if (!entry.mediaFileId || fileById.has(entry.mediaFileId)) continue;
+      const file = selectFile.get(entry.mediaFileId) as AdminMediaFileRow | undefined;
+      if (file) fileById.set(entry.mediaFileId, file);
+    }
+
+    return reply.header('Cache-Control', 'no-store').send({
+      activity: activity.map(entry => publicPlaybackActivity(
+        entry,
+        entry.mediaFileId ? fileById.get(entry.mediaFileId) : undefined
+      )),
+      outcomes: outcomes.map(outcome => publicPlaybackOutcome(
+        outcome,
+        outcome.mediaFileId ? fileById.get(outcome.mediaFileId) : undefined
+      )),
+      operations: {
+        silo: {
+          activeSessions: operations.sessions.active,
+          pendingSessions: operations.sessions.pending,
+          activeStarts: operations.starts.active,
+          queuedStarts: operations.starts.queued,
+          maxConcurrentStarts: operations.starts.maxConcurrent,
+          maxQueuedStarts: operations.starts.maxQueued
+        },
+        jellyfin: jellyfinPlayback.counts(),
+        fallback: fallbackAddon.counts()
+      },
+      generatedAt: Date.now()
+    });
+  });
+
+  app.post('/admin/api/activity/:playbackId/stop', {
+    preHandler: requireAdmin(config, true)
+  }, async (request, reply) => {
+    const { playbackId } = request.params as { playbackId: string };
+    if (!playbackId || playbackId.length > 80 ||
+      !/^[a-z0-9_-]+$/i.test(playbackId)) {
+      return reply.code(400).send({ error: 'Invalid playback ID.' });
+    }
+    const stoppedSilo = await playback.stopPlayback(playbackId);
+    const stoppedJellyfin = await jellyfinPlayback.stopPlayback(playbackId);
+    const stoppedFallback = fallbackAddon.stopPlayback(playbackId);
+    if (!stoppedSilo && !stoppedJellyfin && !stoppedFallback) {
+      return reply.code(404).send({ error: 'Playback session is no longer active.' });
+    }
+    request.log.info({
+      playback_id: playbackId,
+      provider: stoppedSilo
+        ? 'silo'
+        : stoppedJellyfin
+          ? 'jellyfin'
+          : 'fallback_addon',
+      retirement_reason: 'admin_stopped'
+    }, 'Playback session stopped by administrator');
+    return reply.send({ ok: true });
+  });
+
+  app.get('/admin/api/devices', {
+    preHandler: requireAdmin(config)
+  }, async (_request, reply) => {
+    return reply.header('Cache-Control', 'no-store').send({
+      devices: deviceCapabilities.listDevices().map(publicPlaybackDevice),
+      options: deviceCapabilityOptions
+    });
+  });
+
+  app.put('/admin/api/devices/:id/capabilities', {
+    preHandler: requireAdmin(config, true)
+  }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as {
+      category?: DeviceCapabilityCategory;
+      capability?: string;
+      state?: 'auto' | 'supported' | 'unsupported';
+    };
+    const option = deviceCapabilityOptions.find(candidate =>
+      candidate.category === body?.category &&
+      candidate.capability === body?.capability
+    );
+    if (!option || !['auto', 'supported', 'unsupported'].includes(body?.state || '')) {
+      return reply.code(400).send({ error: 'Invalid device capability selection.' });
+    }
+    const exists = database.sqlite.prepare(
+      'SELECT 1 FROM playback_devices WHERE id=?'
+    ).get(id);
+    if (!exists) {
+      return reply.code(404).send({ error: 'Playback device not found.' });
+    }
+
+    if (body.state === 'auto') {
+      deviceCapabilities.clearUserOverride(
+        id,
+        option.category,
+        option.capability
+      );
+    } else {
+      deviceCapabilities.setUserOverride(
+        id,
+        option.category,
+        option.capability,
+        body.state === 'supported'
+      );
+    }
+    const updated = deviceCapabilities.listDevices()
+      .find(device => device.id === id);
+    return reply.header('Cache-Control', 'no-store').send({
+      ok: true,
+      device: updated ? publicPlaybackDevice(updated) : null
+    });
+  });
+
+  app.post('/admin/api/addon-access/regenerate', {
+    preHandler: requireAdmin(config, true)
+  }, async (_request, reply) => {
+    settings.regenerateAddonAccessToken();
+    return reply.header('Cache-Control', 'no-store').send({
+      ok: true,
+      settings: settings.publicView()
+    });
+  });
+
+  app.get('/admin/api/requests', { preHandler: requireAdmin(config) }, async (_request, reply) => {
+    const requests = requester.listRequests(500).map((row) => ({
+      id: row.id,
+      requestKey: row.request_key,
+      mediaType: row.media_type,
+      stremioId: row.stremio_id,
+
+      imdbId: row.imdb_id,
+      tvdbId: row.tvdb_id,
+
+      season: row.season,
+      episode: row.episode,
+
+      title: row.title,
+
+      backend: row.backend,
+      backendItemId: row.backend_item_id,
+
+      status: row.status,
+      message: row.message,
+
+      attempts: row.attempts,
+      lastAttemptAt: row.last_attempt_at,
+
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    }));
+
+    return reply
+      .header('Cache-Control', 'no-store')
+      .send({ requests });
+  });
+
+  app.post('/admin/api/requests/:id/retry', { preHandler: requireAdmin(config, true) }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+
+    try {
+      const started = requester.retryFailed(id);
+
+      if (!started) {
+        return reply.code(409).send({
+          error: 'This request cannot be retried right now. It may no longer be failed or may already be running.'
+        });
+      }
+
+      return reply.code(202).send({
+        ok: true
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'The request could not be retried.';
+
+      return reply.code(400).send({
+        error: message
+      });
+    }
+  });
+
+  app.get('/admin/api/files/:id', { preHandler: requireAdmin(config) }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const file = fileDetail(database, id);
+    return file ? reply.send({ file }) : reply.code(404).send({ error: 'File not found' });
+  });
+
+  app.get('/admin/api/tmdb/search', { preHandler: requireAdmin(config) }, async (request, reply) => {
+    const query = request.query as { type?: string; query?: string; year?: string };
+    if (!['movie', 'series'].includes(query.type || '') || !query.query?.trim()) return reply.code(400).send({ error: 'Type and query are required' });
+    try {
+      const results = await tmdb.search(query.type as MediaType, query.query.trim(), query.year ? Number(query.year) : undefined);
+      return reply.send({ results });
+    } catch (error) {
+      const failure = tmdbFailure(error, 'TMDB search');
+      return reply.code(failure.status).send({ error: failure.message });
+    }
+  });
+
+  app.post('/admin/api/files/:id/match', { preHandler: requireAdmin(config, true) }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as { type?: MediaType; provider?: MetadataSearchResult['provider']; id?: string; tmdbId?: number };
+    const file = database.sqlite.prepare('SELECT * FROM media_files WHERE id=?').get(id) as MediaFileRow | undefined;
+    if (!file) return reply.code(404).send({ error: 'File not found' });
+    const legacyTmdb = Number.isInteger(body.tmdbId) && Number(body.tmdbId) > 0;
+    const genericSelection = ['tmdb', 'cinemeta'].includes(body.provider || '') && typeof body.id === 'string' && body.id.length > 0;
+    if (body.type !== file.library_type || (!legacyTmdb && !genericSelection)) return reply.code(400).send({ error: 'Invalid metadata selection' });
+    const selection: number | MetadataSearchResult = legacyTmdb ? Number(body.tmdbId) : {
+      id: body.id!, provider: body.provider!, title: '',
+      tmdbId: body.provider === 'tmdb' ? Number(body.id) : undefined,
+      imdbId: body.provider === 'cinemeta' ? body.id : undefined
+    };
+    try {
+      const itemId = await tmdb.ensureMediaItem(file.library_type, selection);
+      if (file.library_type === 'series' && file.season !== null) await tmdb.ensureEpisodeMetadata(itemId, selection, file.season);
+      database.sqlite.prepare(`UPDATE media_files SET media_item_id=?,status='matched',confidence=1,manual_override=1,error=NULL,updated_at=? WHERE id=?`)
+        .run(itemId, Date.now(), id);
+      return reply.send({ ok: true, file: fileDetail(database, id) });
+    } catch (error) {
+      const failure = tmdbFailure(error, 'Applying the metadata match');
+      return reply.code(failure.status).send({ error: failure.message });
+    }
+  });
+
+  app.post('/admin/api/files/:id/unmatch', { preHandler: requireAdmin(config, true) }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const file = database.sqlite.prepare('SELECT media_item_id,status FROM media_files WHERE id=?').get(id) as { media_item_id: string | null; status: string } | undefined;
+    if (!file) return reply.code(404).send({ error: 'File not found' });
+    if (!file.media_item_id || ['ignored', 'error'].includes(file.status)) return reply.code(409).send({ error: 'This file does not have a match to remove.' });
+    database.sqlite.prepare(`UPDATE media_files SET media_item_id=NULL,status='unmatched',confidence=NULL,manual_override=1,error=NULL,updated_at=? WHERE id=?`).run(Date.now(), id);
+    return reply.send({ ok: true, file: fileDetail(database, id) });
+  });
+
+  app.post('/admin/api/files/:id/ignore', { preHandler: requireAdmin(config, true) }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const result = database.sqlite.prepare(`UPDATE media_files SET media_item_id=NULL,status='ignored',confidence=NULL,manual_override=1,error=NULL,updated_at=? WHERE id=?`).run(Date.now(), id);
+    return result.changes ? reply.send({ ok: true, file: fileDetail(database, id) }) : reply.code(404).send({ error: 'File not found' });
+  });
+
+  app.patch('/admin/api/items/:id', { preHandler: requireAdmin(config, true) }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as { displayTitle?: string; poster?: string; background?: string };
+    const item = database.sqlite.prepare('SELECT * FROM media_items WHERE id=?').get(id) as MediaItemRow | undefined;
+    if (!item) return reply.code(404).send({ error: 'Media item not found' });
+    const displayTitle = typeof body.displayTitle === 'string' ? body.displayTitle.trim() || null : item.display_title;
+    const poster = typeof body.poster === 'string' ? body.poster.trim() || null : item.poster;
+    const background = typeof body.background === 'string' ? body.background.trim() || null : item.background;
+    database.sqlite.prepare('UPDATE media_items SET display_title=?,poster=?,background=?,updated_at=? WHERE id=?')
+      .run(displayTitle, poster, background, Date.now(), id);
+    return reply.send({ ok: true });
+  });
+
+  app.post('/admin/api/files/:id/stream', { preHandler: requireAdmin(config, true) }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const file = database.sqlite.prepare("SELECT id FROM media_files WHERE id=? AND media_item_id IS NOT NULL AND status NOT IN ('ignored','error')").get(id) as { id: string } | undefined;
+    if (!file) return reply.code(404).send({ error: 'Matched file not found' });
+    const expiry = Date.now() + settings.streamTokenExpiryHours * 60 * 60 * 1000;
+    const { token, payload } = createStreamToken(id, expiry, config.streamSecret, randomUUID());
+    database.sqlite.prepare('INSERT INTO stream_tokens (jti,media_file_id,expires_at,created_at,revoked) VALUES (?,?,?,?,0)')
+      .run(payload.jti, id, expiry, Date.now());
+    return reply.send({ url: `${settings.baseUrl}/media/${encodeURIComponent(token)}`, expiresAt: expiry });
+  });
+
+  app.post('/admin/api/scan', { preHandler: requireAdmin(config, true) }, async (request, reply) => {
+    const mode = (request.body as { mode?: string })?.mode === 'full' ? 'full' : 'changed';
+    if (scanner.isRunning()) return reply.code(409).send({ error: 'A scan is already running' });
+    void scanner.scan(mode).catch((error) => request.log.error({ error }, 'Manual scan failed'));
+    systemDiagnostics.invalidate();
+    return reply.code(202).send({ ok: true, mode, scan: scanner.snapshot() });
+  });
+
+  app.post('/admin/api/scan/cancel', { preHandler: requireAdmin(config, true) }, async (_request, reply) => {
+    if (!scanner.cancel('administrator')) {
+      return reply.code(409).send({ error: 'No cancellable scan is running' });
+    }
+    systemDiagnostics.invalidate();
+    return reply.code(202).send({ ok: true, scan: scanner.snapshot() });
+  });
+
+  app.post('/admin/api/integrations/:service/test', { preHandler: requireAdmin(config, true) }, async (request, reply) => {
+    const { service } = request.params as { service: string };
+
+    if (service === 'fallback-addon') {
+      const manifestUrl = (request.body as { manifestUrl?: string })?.manifestUrl?.trim() ||
+        settings.fallbackAddonManifestUrl;
+      if (!manifestUrl) {
+        return reply.code(400).send({ error: 'Fallback addon manifest URL is required' });
+      }
+      try {
+        const connection = await fallbackAddon.testConnection(manifestUrl);
+        return reply.send({ ok: true, service, ...connection });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Connection failed';
+        return reply.code(/must be|does not provide/i.test(message) ? 400 : 502)
+          .send({ error: message });
+      }
+    }
+
+    if (!['radarr', 'sonarr', 'silo', 'jellyfin', 'plex'].includes(service)) {
+      return reply.code(404).send({ error: 'Unknown integration' });
+    }
+
+    const body = request.body as {
+      url?: string;
+      apiKey?: string;
+      token?: string;
+    };
+
+    const labels: Record<string, string> = {
+      radarr: 'Radarr',
+      sonarr: 'Sonarr',
+      silo: 'Silo',
+      jellyfin: 'Jellyfin',
+      plex: 'Plex'
+    };
+    const label = labels[service]!;
+
+    const url = (
+      body.url?.trim() ||
+      (service === 'radarr'
+        ? settings.radarrUrl
+        : service === 'sonarr'
+          ? settings.sonarrUrl
+          : service === 'silo'
+            ? settings.siloUrl
+            : service === 'jellyfin'
+              ? settings.jellyfinUrl
+              : settings.plexUrl)
+    ).replace(/\/+$/, '');
+
+    const credential = service === 'plex'
+      ? body.token?.trim() || settings.plexToken
+      : body.apiKey?.trim() ||
+        (service === 'radarr'
+          ? settings.radarrApiKey
+          : service === 'sonarr'
+            ? settings.sonarrApiKey
+            : service === 'silo'
+              ? settings.siloApiKey
+              : settings.jellyfinApiKey);
+
+    if (!url) {
+      return reply.code(400).send({
+        error: `${label} URL is required`
+      });
+    }
+
+    let parsed: URL;
+
+    try {
+      parsed = new URL(url);
+    } catch {
+      return reply.code(400).send({
+        error: `${label} URL must be valid`
+      });
+    }
+
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      return reply.code(400).send({
+        error: `${label} URL must use HTTP or HTTPS`
+      });
+    }
+
+    if (!credential) {
+      return reply.code(400).send({
+        error: service === 'plex'
+          ? 'Plex token is required'
+          : `${label} API key is required`
+      });
+    }
+
+    try {
+      if (service === 'jellyfin') {
+        const { server, users } = await playbackServers.testJellyfin(
+          url,
+          credential
+        );
+        return reply.send({
+          ok: true,
+          service: 'jellyfin',
+          instanceName: server.name,
+          serverId: server.id,
+          version: server.version,
+          users: users.map(user => ({
+            id: user.id,
+            name: user.name,
+            disabled: user.disabled
+          })),
+          mapping: playbackServers.mappingSummary('jellyfin', server.id),
+          playbackModes: [
+            'direct_play',
+            'remux',
+            'audio_transcode',
+            'video_transcode'
+          ]
+        });
+      }
+
+      if (service === 'plex') {
+        const { server, libraries } = await playbackServers.testPlex(
+          url,
+          credential
+        );
+        return reply.send({
+          ok: true,
+          service: 'plex',
+          instanceName: server.name,
+          serverId: server.id,
+          version: server.version,
+          libraries,
+          mapping: playbackServers.mappingSummary('plex', server.id),
+          playbackModes: [
+            'direct_play',
+            'direct_stream',
+            'software_transcode'
+          ],
+          requiresPlexPass: false
+        });
+      }
+
+      if (service === 'silo') {
+        const { health, profiles } =
+          await silo.testConnection(
+            url,
+            credential
+          );
+
+        return reply.send({
+          ok: true,
+          service: 'silo',
+          instanceName:
+            health.server_name || 'Silo',
+          serverId:
+            health.server_id,
+          status:
+            health.status,
+          profiles: profiles.map(
+            (profile) => ({
+              id: profile.id,
+              name: profile.name,
+              primary: Boolean(
+                profile.primary
+              )
+            })
+          )
+        });
+      }
+
+      if (service === 'radarr') {
+        const client = new RadarrClient(url, credential);
+
+        const [status, rootFolders, qualityProfiles] =
+          await Promise.all([
+            client.status(),
+            client.rootFolders(),
+            client.qualityProfiles()
+          ]);
+
+        return reply.send({
+          ok: true,
+          service: 'radarr',
+          instanceName: status.instanceName || 'Radarr',
+          version: status.version,
+          rootFolders: rootFolders.map((folder) => ({
+            id: folder.id,
+            path: folder.path,
+            accessible: folder.accessible,
+            freeSpace: folder.freeSpace
+          })),
+          qualityProfiles: qualityProfiles.map((profile) => ({
+            id: profile.id,
+            name: profile.name
+          }))
+        });
+      }
+
+      const client = new SonarrClient(url, credential);
+
+      const [status, rootFolders, qualityProfiles] =
+        await Promise.all([
+          client.status(),
+          client.rootFolders(),
+          client.qualityProfiles()
+        ]);
+
+      return reply.send({
+        ok: true,
+        service: 'sonarr',
+        instanceName: status.instanceName || 'Sonarr',
+        version: status.version,
+        rootFolders: rootFolders.map((folder) => ({
+          id: folder.id,
+          path: folder.path,
+          accessible: folder.accessible,
+          freeSpace: folder.freeSpace
+        })),
+        qualityProfiles: qualityProfiles.map((profile) => ({
+          id: profile.id,
+          name: profile.name
+        }))
+      });
+    } catch (error) {
+      const detail =
+        error instanceof Error
+          ? error.message
+          : 'Unknown connection error';
+
+      request.log.warn(
+        {
+          service,
+          error: detail
+        },
+        'Integration connection test failed'
+      );
+
+      return reply.code(502).send({
+        error: `${label} connection failed: ${detail}`
+      });
+    }
+  });
+
+  app.post('/admin/api/integrations/:service/mappings/refresh', {
+    preHandler: requireAdmin(config, true)
+  }, async (request, reply) => {
+    const { service } = request.params as { service: string };
+    if (service !== 'jellyfin' && service !== 'plex') {
+      return reply.code(404).send({ error: 'Unknown playback server' });
+    }
+    const configured = service === 'jellyfin'
+      ? settings.jellyfinEnabled && Boolean(
+        settings.jellyfinUrl && settings.jellyfinApiKey &&
+        settings.jellyfinUserId
+      )
+      : settings.plexEnabled && Boolean(
+        settings.plexUrl && settings.plexToken
+      );
+    const label = service === 'jellyfin' ? 'Jellyfin' : 'Plex';
+    if (!configured) {
+      return reply.code(400).send({
+        error: `${label} must be enabled and fully configured before mapping.`
+      });
+    }
+
+    try {
+      const result = await playbackServers.refreshMappings(service, true);
+      systemDiagnostics.invalidate();
+      return reply.send({
+        ok: true,
+        service,
+        mapping: result.summary
+      });
+    } catch (error) {
+      request.log.warn(
+        { service, error: error instanceof Error ? error.message : 'unknown' },
+        'Playback-server mapping refresh failed'
+      );
+      return reply.code(error instanceof PathPrefixMappingError ? 400 : 502)
+        .send({
+          error: error instanceof PathPrefixMappingError
+            ? error.message
+            : `${label} exact media mapping refresh failed.`
+        });
+    }
+  });
+
+  app.post('/admin/api/branding/icon', {
+    preHandler: requireAdmin(config, true)
+  }, async (request, reply) => {
+    const part = await request.file();
+
+    if (!part) {
+      return reply.code(400).send({
+        error: 'Choose an icon to upload'
+      });
+    }
+
+    const buffer = await part.toBuffer();
+
+    if (!buffer.length) {
+      return reply.code(400).send({
+        error: 'The selected icon is empty'
+      });
+    }
+
+    if (buffer.length > MAX_ADDON_ICON_BYTES) {
+      return reply.code(413).send({
+        error: 'Addon icon must be 2 MB or smaller'
+      });
+    }
+
+    const mime =
+      detectAddonIconType(buffer);
+
+    if (!mime) {
+      return reply.code(400).send({
+        error: 'Addon icon must be a PNG, JPG, or WEBP image'
+      });
+    }
+
+    await writeAddonIcon(
+      config,
+      buffer
+    );
+
+    const updatedAt =
+      Date.now();
+
+    settings.set(
+      'addonIconUpdatedAt',
+      String(updatedAt)
+    );
+
+    return reply.send({
+      ok: true,
+      iconUrl:
+        `${settings.baseUrl}/addon-icon?v=${updatedAt}`,
+      settings: settings.publicView()
+    });
+  });
+
+  app.delete('/admin/api/branding/icon', {
+    preHandler: requireAdmin(config, true)
+  }, async (_request, reply) => {
+    await removeAddonIcon(config);
+
+    settings.set(
+      'addonIconUpdatedAt',
+      '0'
+    );
+
+    return reply.send({
+      ok: true,
+      iconUrl:
+        `${settings.baseUrl}/addon-icon?v=0`,
+      settings: settings.publicView()
+    });
+  });
+
+  app.put('/admin/api/settings', { preHandler: requireAdmin(config, true) }, async (request, reply) => {
+    const body = request.body as Record<string, string>;
+    let baseUrl: URL;
+    try { baseUrl = new URL(body.baseUrl || ''); } catch { return reply.code(400).send({ error: 'BASE_URL must be a valid URL' }); }
+    if (!['http:', 'https:'].includes(baseUrl.protocol)) return reply.code(400).send({ error: 'BASE_URL must use HTTP or HTTPS' });
+
+    const addonName = body.addonName?.trim();
+
+    if (!addonName) {
+      return reply.code(400).send({
+        error: 'Addon name is required'
+      });
+    }
+
+    if (addonName.length > 80) {
+      return reply.code(400).send({
+        error: 'Addon name must be 80 characters or fewer'
+      });
+    }
+
+    const numeric: Array<[string, number]> = [
+      ['scanIntervalMinutes', 1],
+      ['minimumFileSizeMb', 0],
+      ['streamTokenExpiryHours', 1],
+      ['siloRuntimeFallbackSlowSegmentMs', 1000],
+      ['siloRuntimeFallbackSlowSegmentCount', 2],
+      ['siloRuntimeFallbackStartupMs', 5000],
+      ['siloRuntimeFallbackMaxAttempts', 1],
+      ['siloMaxConcurrentStarts', 1],
+      ['siloMaxQueuedStarts', 0],
+      ['siloStartQueueTimeoutMs', 1000],
+      ['fallbackAddonTimeoutMs', 1000],
+      ['fallbackAddonMaxAttempts', 1],
+      ['fallbackAddonStartupBudgetMs', 5000],
+      ['fallbackAddonNetworkHeadroomPercent', 0],
+      ['fallbackAddonNetworkMemoryMinutes', 10],
+      ['fallbackAddonColdStartMbps', 0]
+    ];
+
+    for (const [key, minimum] of numeric) {
+      if (typeof body[key] !== 'undefined') {
+        if (!Number.isFinite(Number(body[key])) || Number(body[key]) < minimum) {
+          return reply.code(400).send({ error: `${key} is invalid` });
+        }
+      }
+    }
+
+    if (typeof body.mediaSoftLimitGb !== 'undefined' && Number.isFinite(Number(body.mediaSoftLimitGb)) && Number(body.mediaSoftLimitGb) >= 1) {
+      settings.set('mediaSoftLimitGb', String(Math.round(Number(body.mediaSoftLimitGb))));
+    }
+
+    if (typeof body.lanBaseUrl === 'string') {
+      settings.set('lanBaseUrl', body.lanBaseUrl.trim());
+    }
+
+    for (const key of [
+      'baseUrl',
+      'addonName',
+      'moviesPath',
+      'tvPath',
+      'scanIntervalMinutes',
+      'minimumFileSizeMb',
+      'streamTokenExpiryHours',
+      'longLivedStreamTokens',
+      'adminUsername'
+    ]) {
+      if (typeof body[key] === 'string' && body[key]!.trim()) {
+        settings.set(key, body[key]!);
+      }
+    }
+
+    if (body.tmdbApiKey?.trim()) {
+      settings.set('tmdbApiKey', body.tmdbApiKey);
+    }
+
+    // Boolean settings.
+    for (const key of [
+      'autoRequestEnabled',
+      'radarrEnabled',
+      'sonarrEnabled',
+      'sonarrSeparateAnimeRoot',
+      'sonarrMonitorWholeSeries',
+      'siloEnabled',
+      'jellyfinEnabled',
+      'plexEnabled',
+      'siloRuntimeFallbackEnabled',
+      'showDirectPlay',
+      'fallbackAddonEnabled',
+      'fallbackAddonUseForMissing',
+      'fallbackAddonBeforeTranscode',
+      'fallbackAddonAllowResolutionDowngrade',
+      'fallbackAddonNetworkAdaptation'
+    ]) {
+      if (body[key] === 'true' || body[key] === 'false') {
+        settings.set(key, body[key]!);
+      }
+    }
+
+    // Integration URLs may be blank while an integration is disabled.
+    for (const [key, label] of [
+      ['radarrUrl', 'Radarr'],
+      ['sonarrUrl', 'Sonarr'],
+      ['siloUrl', 'Silo'],
+      ['jellyfinUrl', 'Jellyfin'],
+      ['plexUrl', 'Plex']
+    ] as const) {
+      if (typeof body[key] !== 'string') continue;
+
+      const value = body[key]!.trim();
+
+      if (value) {
+        let parsed: URL;
+
+        try {
+          parsed = new URL(value);
+        } catch {
+          return reply.code(400).send({
+            error: `${label} URL must be a valid URL`
+          });
+        }
+
+        if (!['http:', 'https:'].includes(parsed.protocol)) {
+          return reply.code(400).send({
+            error: `${label} URL must use HTTP or HTTPS`
+          });
+        }
+      }
+
+      settings.set(key, value);
+    }
+
+    for (const [key, label] of [
+      ['jellyfinPathMappings', 'Jellyfin'],
+      ['plexPathMappings', 'Plex']
+    ] as const) {
+      if (typeof body[key] !== 'string') continue;
+      try {
+        parsePathPrefixMappings(body[key]!);
+      } catch (error) {
+        return reply.code(400).send({
+          error: error instanceof PathPrefixMappingError
+            ? `${label} ${error.message}`
+            : `${label} path-prefix mappings are invalid.`
+        });
+      }
+      settings.set(key, body[key]!);
+    }
+
+    if (typeof body.fallbackAddonManifestUrl === 'string' && body.fallbackAddonManifestUrl.trim()) {
+      const value = body.fallbackAddonManifestUrl.trim();
+      let parsed: URL;
+      try {
+        parsed = new URL(value);
+      } catch {
+        return reply.code(400).send({ error: 'Fallback addon manifest URL must be valid' });
+      }
+      if (
+        !['http:', 'https:'].includes(parsed.protocol) ||
+        parsed.username || parsed.password ||
+        !parsed.pathname.endsWith('/manifest.json')
+      ) {
+        return reply.code(400).send({
+          error: 'Fallback addon URL must be an HTTP(S) manifest.json URL without URL credentials'
+        });
+      }
+      settings.set('fallbackAddonManifestUrl', value);
+    }
+
+    if (typeof body.fallbackAddonTimeoutMs === 'string') {
+      const timeout = Number(body.fallbackAddonTimeoutMs);
+      if (!Number.isInteger(timeout) || timeout < 1000 || timeout > 15_000) {
+        return reply.code(400).send({ error: 'fallbackAddonTimeoutMs is invalid' });
+      }
+      settings.set('fallbackAddonTimeoutMs', String(timeout));
+    }
+
+    const boundedFallbackNumbers: Array<[string, number, number]> = [
+      ['fallbackAddonMaxAttempts', 1, 25],
+      ['fallbackAddonStartupBudgetMs', 5000, 30_000],
+      ['fallbackAddonNetworkHeadroomPercent', 0, 100],
+      ['fallbackAddonNetworkMemoryMinutes', 10, 120],
+      ['fallbackAddonColdStartMbps', 0, 10_000]
+    ];
+    for (const [key, minimum, maximum] of boundedFallbackNumbers) {
+      if (typeof body[key] !== 'string') continue;
+      const value = Number(body[key]);
+      const integerRequired = key === 'fallbackAddonMaxAttempts' ||
+        key === 'fallbackAddonStartupBudgetMs' ||
+        key === 'fallbackAddonNetworkMemoryMinutes';
+      if (!Number.isFinite(value) || (integerRequired && !Number.isInteger(value)) ||
+        value < minimum || value > maximum) {
+        return reply.code(400).send({ error: `${key} is invalid` });
+      }
+      settings.set(key, String(value));
+    }
+
+    if (typeof body.fallbackAddonMaxResolution === 'string') {
+      const value = body.fallbackAddonMaxResolution.trim();
+      if (!['auto', '2160p', '1080p', '720p', '480p'].includes(value)) {
+        return reply.code(400).send({ error: 'fallbackAddonMaxResolution is invalid' });
+      }
+      settings.set('fallbackAddonMaxResolution', value);
+    }
+
+    // Silo playback options.
+    const boundedSiloNumbers: Array<[string, number, number]> = [
+      ['siloRuntimeFallbackSlowSegmentMs', 1000, 15_000],
+      ['siloRuntimeFallbackSlowSegmentCount', 2, 10],
+      ['siloRuntimeFallbackStartupMs', 5000, 60_000],
+      ['siloRuntimeFallbackMaxAttempts', 1, 3],
+      ['siloMaxConcurrentStarts', 1, 8],
+      ['siloMaxQueuedStarts', 0, 32],
+      ['siloStartQueueTimeoutMs', 1000, 60_000]
+    ];
+    for (const [key, minimum, maximum] of boundedSiloNumbers) {
+      if (typeof body[key] !== 'undefined') {
+        const value = Number(body[key]);
+        if (!Number.isInteger(value) || value < minimum || value > maximum) {
+          return reply.code(400).send({ error: `${key} is invalid` });
+        }
+        settings.set(key, String(value));
+      }
+    }
+
+    if (typeof body.siloProfileId === 'string') {
+      settings.set(
+        'siloProfileId',
+        body.siloProfileId
+      );
+    }
+
+    if (typeof body.jellyfinUserId === 'string') {
+      const userId = body.jellyfinUserId.trim();
+      if (userId && (userId.length > 128 || !/^[a-z0-9_-]+$/i.test(userId))) {
+        return reply.code(400).send({ error: 'Jellyfin playback user is invalid' });
+      }
+      settings.set('jellyfinUserId', userId);
+    }
+
+    if (
+      typeof body.siloTranscodeQuality === 'string' &&
+      body.siloTranscodeQuality.trim()
+    ) {
+      const quality =
+        body.siloTranscodeQuality.trim();
+
+      const allowedSiloQualities = new Set<string>(siloQualityPreferences);
+
+      if (!allowedSiloQualities.has(quality)) {
+        return reply.code(400).send({
+          error: 'Silo transcode quality is invalid'
+        });
+      }
+
+      settings.set(
+        'siloTranscodeQuality',
+        quality
+      );
+    }
+
+    // Optional library/root paths may be cleared.
+    for (const key of [
+      'animePath',
+      'radarrRootFolderPath',
+      'sonarrRootFolderPath',
+      'sonarrAnimeRootFolderPath'
+    ]) {
+      if (typeof body[key] === 'string') {
+        settings.set(key, body[key]!);
+      }
+    }
+
+    // Profile ID 0 means "not selected yet".
+    for (const key of [
+      'radarrQualityProfileId',
+      'sonarrQualityProfileId',
+      'sonarrAnimeQualityProfileId'
+    ]) {
+      if (typeof body[key] !== 'string') continue;
+
+      const value = Number(body[key]);
+
+      if (
+        !Number.isInteger(value) ||
+        value < 0
+      ) {
+        return reply.code(400).send({
+          error: `${key} is invalid`
+        });
+      }
+
+      settings.set(key, String(value));
+    }
+
+    // Blank API-key fields preserve the already stored secret.
+    if (body.radarrApiKey?.trim()) {
+      settings.set('radarrApiKey', body.radarrApiKey);
+    }
+
+    if (body.sonarrApiKey?.trim()) {
+      settings.set('sonarrApiKey', body.sonarrApiKey);
+    }
+
+    if (body.siloApiKey?.trim()) {
+      settings.set('siloApiKey', body.siloApiKey);
+    }
+
+    if (body.jellyfinApiKey?.trim()) {
+      settings.set('jellyfinApiKey', body.jellyfinApiKey);
+    }
+
+    if (body.plexToken?.trim()) {
+      settings.set('plexToken', body.plexToken);
+    }
+
+    if (body.newPassword) {
+      if (body.newPassword.length < 10) return reply.code(400).send({ error: 'The admin password must be at least 10 characters' });
+      settings.set('adminPasswordHash', await hashPassword(body.newPassword));
+    }
+    await scanner.reloadSchedules();
+    systemDiagnostics.invalidate();
+    return reply.send({ ok: true, settings: settings.publicView() });
+  });
+}

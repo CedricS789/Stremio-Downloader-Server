@@ -1,0 +1,38 @@
+name: Windows release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    # Electron's native-module rebuild currently requires the Visual Studio 2022 toolchain.
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run typecheck
+      - run: npm run make:windows
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: my-media-dock-windows
+          path: out/make/**/*
+          if-no-files-found: error
+      - name: Publish files to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $assets = Get-ChildItem out/make -Recurse -File | ForEach-Object { $_.FullName }
+          gh release create $env:GITHUB_REF_NAME $assets --generate-notes --title "My-Media-Dock $env:GITHUB_REF_NAME"

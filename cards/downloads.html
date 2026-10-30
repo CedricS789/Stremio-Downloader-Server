@@ -1,0 +1,1200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Stremio Downloader Server — Live Downloads & Storage</title>
+<style>
+  :root {
+    --bg: #07090e;
+    --bg-gradient: radial-gradient(circle at 50% -10%, rgba(14, 165, 233, 0.12) 0%, transparent 50%), #07090e;
+    --surface: #0e121b;
+    --surface-raised: #141926;
+    --surface-hover: #1a2234;
+    --border: #1e2638;
+    --border-hover: #2b364e;
+    --border-focus: #0ea5e9;
+    
+    --text: #f8fafc;
+    --text-muted: #94a3b8;
+    --text-dim: #64748b;
+
+    --accent: #0ea5e9;
+    --accent-hover: #38bdf8;
+    --accent-active: #0284c7;
+    --accent-glow: rgba(14, 165, 233, 0.28);
+    --accent-gradient: linear-gradient(135deg, #0284c7 0%, #0ea5e9 50%, #06b6d4 100%);
+    --accent-surface: rgba(14, 165, 233, 0.12);
+    --accent-border: rgba(14, 165, 233, 0.35);
+
+    --emerald: #10b981;
+    --emerald-surface: rgba(16, 185, 129, 0.12);
+    --emerald-border: rgba(16, 185, 129, 0.35);
+
+    --amber: #f59e0b;
+    --amber-surface: rgba(245, 158, 11, 0.12);
+    --amber-border: rgba(245, 158, 11, 0.35);
+
+    --rose: #f43f5e;
+    --rose-surface: rgba(244, 63, 94, 0.12);
+    --rose-border: rgba(244, 63, 94, 0.35);
+
+    --violet: #8b5cf6;
+    --violet-surface: rgba(139, 92, 246, 0.12);
+    --violet-border: rgba(139, 92, 246, 0.35);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg-gradient);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    margin: 0;
+    padding: 24px 16px;
+    padding-top: max(20px, env(safe-area-inset-top));
+    padding-bottom: max(32px, env(safe-area-inset-bottom));
+    padding-left: max(16px, env(safe-area-inset-left));
+    padding-right: max(16px, env(safe-area-inset-right));
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+
+  /* Clicky base styling */
+  button, .btn, .btn-primary, .btn-danger, .btn-stremio, .nav-btn, .pill, a.btn-primary {
+    font-family: inherit;
+    font-weight: 700;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    transition: transform 0.08s ease, box-shadow 0.08s ease, background 0.15s ease, border-color 0.15s ease;
+  }
+  button:hover, .btn:hover, a.btn-primary:hover {
+    transform: translateY(-1px);
+  }
+  button:active, .btn:active, a.btn-primary:active {
+    transform: translateY(1.5px) !important;
+  }
+
+  /* Header */
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+  }
+  .brand { display: flex; align-items: center; gap: 14px; }
+  .logo-icon {
+    width: 44px; height: 44px;
+    border-radius: 12px;
+    background: var(--accent-gradient);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), 0 3px 0 #0369a1, 0 6px 18px var(--accent-glow);
+    flex-shrink: 0;
+  }
+  h1 {
+    margin: 0;
+    font-size: 22px;
+    font-weight: 800;
+    color: #fff;
+    letter-spacing: -0.025em;
+  }
+  p.sub { margin: 2px 0 0 0; color: var(--text-muted); font-size: 13px; font-weight: 500; }
+
+  .header-actions {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
+  .btn-base {
+    font-size: 13px;
+    border-radius: 9px;
+    padding: 8px 14px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    text-decoration: none;
+    border: 1px solid var(--border);
+    box-shadow: 0 2px 0 rgba(0, 0, 0, 0.45);
+  }
+  .btn-primary {
+    background: var(--surface-raised);
+    color: #e2e8f0;
+    border-color: var(--border);
+  }
+  .btn-primary:hover {
+    background: var(--surface-hover);
+    color: #fff;
+    border-color: var(--border-hover);
+    box-shadow: 0 3px 0 rgba(0, 0, 0, 0.45);
+  }
+  .btn-primary:active {
+    box-shadow: 0 0.5px 0 rgba(0, 0, 0, 0.45);
+  }
+
+  .btn-accent {
+    background: var(--accent-gradient);
+    color: #fff;
+    border-color: rgba(56, 189, 248, 0.5);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 2px 0 #0369a1, 0 4px 12px var(--accent-glow);
+  }
+  .btn-accent:hover {
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 3px 0 #0369a1, 0 6px 16px var(--accent-glow);
+  }
+  .btn-accent:active {
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15), 0 0.5px 0 #0369a1;
+  }
+
+  .btn-danger {
+    background: var(--rose-surface);
+    color: #fda4af;
+    border-color: var(--rose-border);
+    box-shadow: 0 2px 0 rgba(0, 0, 0, 0.4);
+  }
+  .btn-danger:hover {
+    background: var(--rose);
+    color: #fff;
+    border-color: var(--rose);
+    box-shadow: 0 3px 0 #be123c, 0 4px 12px rgba(244, 63, 94, 0.35);
+  }
+  .btn-danger:active {
+    box-shadow: 0 0.5px 0 #be123c;
+  }
+  .btn-sm { padding: 6px 11px; font-size: 12px; border-radius: 7px; }
+
+  /* Stats Grid */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 14px;
+    margin-bottom: 20px;
+  }
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 18px 20px;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  }
+  .stat-label {
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+  }
+  .stat-val {
+    font-size: 28px;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    color: #fff;
+    margin: 4px 0 3px 0;
+  }
+  .stat-sub { font-size: 12px; color: var(--text-muted); font-weight: 500; }
+
+  .mini-bar-bg {
+    width: 100%;
+    height: 5px;
+    background: #141926;
+    border-radius: 999px;
+    overflow: hidden;
+    margin: 8px 0 6px 0;
+    border: 1px solid rgba(255, 255, 255, 0.03);
+  }
+  .mini-bar-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--accent);
+    border-radius: 999px;
+    transition: width 0.4s ease;
+  }
+
+  /* Storage Quota Progress Card */
+  .storage-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 18px 20px;
+    margin-bottom: 24px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  }
+  .storage-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+    font-size: 13px;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .storage-card-title {
+    font-weight: 700;
+    color: #f1f5f9;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    letter-spacing: -0.01em;
+  }
+  .storage-card-val {
+    font-weight: 700;
+    color: var(--accent);
+    background: var(--accent-surface);
+    border: 1px solid var(--accent-border);
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+  }
+  .storage-bar-bg {
+    width: 100%;
+    height: 12px;
+    background: #090c14;
+    border-radius: 999px;
+    overflow: hidden;
+    position: relative;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.6);
+  }
+  .storage-bar-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--accent-gradient);
+    border-radius: 999px;
+    transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 0 14px var(--accent-glow);
+  }
+  .storage-bar-fill.warn {
+    background: linear-gradient(90deg, #d97706, #f59e0b, #fbbf24);
+    box-shadow: 0 0 14px rgba(245, 158, 11, 0.45);
+  }
+  .storage-bar-fill.danger {
+    background: linear-gradient(90deg, #e11d48, #f43f5e, #fb7185);
+    box-shadow: 0 0 14px rgba(244, 63, 94, 0.45);
+  }
+  .storage-ticks {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-dim);
+    margin-top: 8px;
+    padding: 0 2px;
+  }
+  .storage-ticks .tick-warn { color: #fbbf24; }
+  .storage-ticks .tick-limit { color: #f43f5e; font-weight: 700; }
+
+  /* Active Background Downloads */
+  .section-title {
+    font-size: 15px;
+    font-weight: 800;
+    color: #f1f5f9;
+    letter-spacing: -0.01em;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin: 28px 0 12px 0;
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 18px;
+    margin-bottom: 10px;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+  }
+  .row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .bar-bg {
+    width: 100%;
+    height: 9px;
+    background: #090c14;
+    border-radius: 999px;
+    overflow: hidden;
+    margin-top: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+  }
+  .bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #0ea5e9, #10b981);
+    transition: width 0.3s ease;
+    box-shadow: 0 0 10px rgba(16, 185, 129, 0.4);
+  }
+  .meta-dl { font-size: 12px; color: var(--text-muted); font-weight: 600; margin-top: 6px; }
+
+  /* Filter Panel */
+  .filter-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 16px 18px;
+    margin-bottom: 16px;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+  }
+  .pills-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+    margin-bottom: 14px;
+  }
+  .pill {
+    background: var(--surface-raised);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    padding: 7px 14px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 2px 0 rgba(0, 0, 0, 0.35);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+  }
+  .pill:hover {
+    background: var(--surface-hover);
+    color: #fff;
+    border-color: var(--border-hover);
+    transform: translateY(-1px);
+  }
+  .pill:active {
+    transform: translateY(1.5px) !important;
+    box-shadow: 0 0.5px 0 rgba(0, 0, 0, 0.35);
+  }
+  .pill.active {
+    background: var(--accent-gradient);
+    color: #fff;
+    border-color: rgba(56, 189, 248, 0.6);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 2px 0 #0369a1, 0 4px 12px var(--accent-glow);
+  }
+  .pill .count {
+    background: rgba(0, 0, 0, 0.35);
+    padding: 1px 7px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 750;
+  }
+
+  .active-filter-banner {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--accent-surface);
+    border: 1px solid var(--accent-border);
+    border-radius: 9px;
+    padding: 10px 14px;
+    margin-bottom: 14px;
+    font-size: 13px;
+    color: #e0f2fe;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .active-filter-banner b { color: #fff; }
+
+  .search-sort-row {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+  }
+  .search-box {
+    flex: 1;
+    min-width: 220px;
+    background: #090c14;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    padding: 9px 14px;
+    color: #fff;
+    font-size: 13px;
+    font-family: inherit;
+    outline: none;
+    transition: all 0.2s;
+  }
+  .search-box:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-glow);
+  }
+  select.sort-select {
+    background: #090c14;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    padding: 9px 14px;
+    color: #cbd5e1;
+    font-size: 13px;
+    font-family: inherit;
+    font-weight: 600;
+    cursor: pointer;
+    outline: none;
+    transition: all 0.2s;
+  }
+  select.sort-select:focus {
+    border-color: var(--accent);
+  }
+
+  /* Batch Toolbar */
+  .batch-bar {
+    background: #141b2b;
+    border: 1px solid #2d3b55;
+    border-radius: 10px;
+    padding: 10px 16px;
+    margin-bottom: 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 13px;
+    flex-wrap: wrap;
+    gap: 10px;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  }
+
+  /* File Rows */
+  .file-item {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 18px;
+    margin-bottom: 9px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    transition: transform 0.12s ease, border-color 0.15s ease, background 0.15s ease;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  }
+  .file-item:hover {
+    background: var(--surface-raised);
+    border-color: var(--border-hover);
+    transform: translateY(-1px);
+  }
+  .file-check {
+    cursor: pointer;
+    width: 18px;
+    height: 18px;
+    accent-color: var(--accent);
+    flex-shrink: 0;
+  }
+  .file-main { flex: 1; min-width: 0; }
+  .file-title-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 4px;
+  }
+  .file-title {
+    font-weight: 750;
+    font-size: 14px;
+    color: #f1f5f9;
+    cursor: pointer;
+    letter-spacing: -0.01em;
+  }
+  .file-title:hover { color: var(--accent-hover); text-decoration: underline; }
+
+  .badge {
+    font-size: 11px;
+    font-weight: 800;
+    padding: 2px 7px;
+    border-radius: 5px;
+    letter-spacing: 0.03em;
+  }
+  .badge-ep {
+    background: var(--accent-surface);
+    color: #7dd3fc;
+    border: 1px solid var(--accent-border);
+  }
+  .badge-movie {
+    background: var(--emerald-surface);
+    color: #6ee7b7;
+    border: 1px solid var(--emerald-border);
+  }
+
+  .file-meta-link {
+    font-size: 12px;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    text-decoration: none;
+    cursor: pointer;
+    transition: color 0.15s ease;
+  }
+  .file-meta-link:hover {
+    color: #38bdf8;
+    text-decoration: underline;
+  }
+  .file-play-icon {
+    font-size: 11px;
+    color: var(--accent);
+    flex-shrink: 0;
+  }
+  .file-meta {
+    font-size: 12px;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .file-size-badge {
+    font-size: 13px;
+    font-weight: 800;
+    color: #e2e8f0;
+    background: #090c14;
+    padding: 5px 11px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  .file-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .btn-stremio {
+    background: var(--violet-surface);
+    color: #c4b5fd;
+    border: 1px solid var(--violet-border);
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 700;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    cursor: pointer;
+    box-shadow: 0 2px 0 rgba(0, 0, 0, 0.35);
+    white-space: nowrap;
+  }
+  .btn-stremio:hover {
+    background: #7c3aed;
+    color: #fff;
+    border-color: #8b5cf6;
+    box-shadow: 0 3px 0 #5b21b6, 0 4px 12px rgba(124, 58, 237, 0.4);
+  }
+  .btn-stremio:active {
+    box-shadow: 0 0.5px 0 #5b21b6;
+  }
+
+  .empty-state {
+    text-align: center;
+    padding: 48px 20px;
+    color: var(--text-muted);
+    font-size: 14px;
+    font-style: italic;
+  }
+
+  /* Smartphone Layout Styles (< 640px) */
+  @media (max-width: 640px) {
+    body { padding: 16px 12px; }
+    .header { flex-direction: column; align-items: stretch; gap: 14px; margin-bottom: 18px; }
+    .header-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      width: 100%;
+    }
+    .header-actions .btn-base, .header-actions button, .header-actions a {
+      justify-content: center;
+      padding: 10px 8px;
+      font-size: 12px;
+      min-height: 42px;
+    }
+    .stats-grid {
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+    .stat-card { padding: 14px 14px; }
+    .stat-card:last-child {
+      grid-column: 1 / -1;
+    }
+    .stat-val { font-size: 22px; }
+
+    /* Horizontal scroll for pills on small screens */
+    .pills-row {
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      padding-bottom: 6px;
+      margin-bottom: 10px;
+      scrollbar-width: none;
+    }
+    .pills-row::-webkit-scrollbar { display: none; }
+    .search-sort-row { flex-direction: column; align-items: stretch; gap: 8px; }
+    .search-box { min-width: 100%; }
+    select.sort-select { width: 100%; }
+
+    /* Responsive File Card on Mobile */
+    .file-item {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 10px;
+      padding: 12px 14px;
+    }
+    .file-item-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+    }
+    .file-item-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
+      padding-top: 8px;
+      margin-top: 2px;
+    }
+    .file-actions {
+      width: 100%;
+      justify-content: flex-end;
+    }
+    .btn-stremio, .btn-danger {
+      min-height: 38px;
+      padding: 6px 12px;
+    }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="header">
+    <div class="brand">
+      <div class="logo-icon">⚡</div>
+      <div>
+        <h1>Stremio Downloader Server</h1>
+        <p class="sub">Self-hosted media library, storage quota & active transfers</p>
+      </div>
+    </div>
+    <div class="header-actions">
+      <a href="/admin" class="btn-base btn-primary" style="background:#131d2e; color:#7dd3fc; border-color:#1e3a5f;">⚙️ App Console</a>
+      <button class="btn-base btn-primary" onclick="rescanLibrary()">🔄 Rescan Library</button>
+      <button class="btn-base btn-danger" onclick="deleteAllMedia()">🗑️ Delete All</button>
+      <button class="btn-base btn-primary" style="background:#18181b; border-color:#27272a; color:#a1a1aa;" onclick="logout()">🔒 Sign Out</button>
+    </div>
+  </div>
+
+  <div class="stats-grid">
+    <div class="stat-card">
+      <div class="stat-label">Media Storage Used</div>
+      <div class="stat-val" id="stat-used">0 MB</div>
+      <div class="mini-bar-bg"><div class="mini-bar-fill" id="mini-bar-fill" style="width: 0%;"></div></div>
+      <div class="stat-sub" id="stat-sub-used">Media Library</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Allocated Quota Remaining</div>
+      <div class="stat-val" id="stat-free">0 GB Free</div>
+      <div class="stat-sub" id="stat-sub-drive">Host Storage Free: 0 GB</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Downloaded Content</div>
+      <div class="stat-val" id="stat-files">0 Files</div>
+      <div class="stat-sub" id="stat-sub-breakdown">0 Movies • 0 Series</div>
+    </div>
+  </div>
+
+  <div class="storage-card">
+    <div class="storage-card-header">
+      <span class="storage-card-title">📊 Storage Quota Allocation</span>
+      <span class="storage-card-val" id="storage-card-val">0 GB of 100 GB used (0%)</span>
+    </div>
+    <div class="storage-bar-bg">
+      <div class="storage-bar-fill" id="storage-bar-fill" style="width: 0%;"></div>
+    </div>
+    <div class="storage-ticks">
+      <span>0 GB</span>
+      <span id="tick-25">25 GB</span>
+      <span id="tick-50">50 GB</span>
+      <span id="tick-80">80 GB</span>
+      <span id="tick-100" class="tick-limit">100 GB (Limit)</span>
+    </div>
+  </div>
+
+  <div id="active-wrap" style="display:none;">
+    <div class="section-title">
+      <span>Active Background Downloads</span>
+      <button class="btn-base btn-danger btn-sm" onclick="cancelAllDownloads()">Cancel All Downloads</button>
+    </div>
+    <div id="active-list"></div>
+  </div>
+
+  <div class="section-title">
+    <span>Downloaded Files on Disk</span>
+  </div>
+
+  <div class="filter-panel">
+    <div class="pills-row" id="pills-container"></div>
+    <div id="filter-banner" style="display:none;"></div>
+    <div class="search-sort-row">
+      <input type="text" id="search-input" class="search-box" placeholder="Filter by show, episode, or filename..." oninput="onSearchChange()">
+      <select id="sort-select" class="sort-select" onchange="onSortChange()">
+        <option value="size-desc">Sort by: Largest Size</option>
+        <option value="size-asc">Sort by: Smallest Size</option>
+        <option value="date-desc">Sort by: Newest Added</option>
+        <option value="title-asc">Sort by: Title A–Z</option>
+      </select>
+    </div>
+  </div>
+
+  <div id="batch-bar" class="batch-bar" style="display:none;">
+    <div style="display:flex; align-items:center; gap:10px;">
+      <input type="checkbox" id="master-check" class="file-check" onchange="toggleSelectAll()">
+      <span id="selected-summary" style="font-weight:700; color:#e0f2fe;">0 selected</span>
+    </div>
+    <div style="display:flex; gap:8px;">
+      <button class="btn-base btn-primary btn-sm" onclick="clearSelection()">Clear Selection</button>
+      <button class="btn-base btn-danger btn-sm" onclick="deleteSelected()">🗑️ Delete Selected</button>
+    </div>
+  </div>
+
+  <div id="files-list"></div>
+
+</div>
+
+<script>
+let currentData = { items: [], localFiles: [], shows: [], stats: {} };
+let selectedIds = new Set();
+let activeFilter = 'all';
+let searchQuery = '';
+let currentSort = 'size-desc';
+
+function fmtGb(b) {
+  if (!b || b <= 0) return '0 MB';
+  const gb = b / (1024 ** 3);
+  if (gb >= 10) return gb.toFixed(1) + ' GB';
+  if (gb >= 1) return gb.toFixed(2) + ' GB';
+  return Math.round(b / (1024 ** 2)) + ' MB';
+}
+
+function formatDate(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+async function rescanLibrary() {
+  await fetch('/downloads/rescan', { method: 'POST' });
+  refresh();
+}
+
+async function cancelDl(key) {
+  if (!confirm('Cancel active download: ' + key + '?')) return;
+  await fetch('/downloads/cancel?key=' + encodeURIComponent(key), { method: 'POST' });
+  refresh();
+}
+
+async function cancelAllDownloads() {
+  if (!confirm('Cancel ALL active background downloads?')) return;
+  await fetch('/downloads/cancel?all=true', { method: 'POST' });
+  refresh();
+}
+
+async function deleteFile(id, name) {
+  if (!confirm('Permanently delete ' + name + ' from disk?')) return;
+  await fetch('/downloads/delete-file?id=' + encodeURIComponent(id), { method: 'POST' });
+  selectedIds.delete(id);
+  refresh();
+}
+
+async function deleteShow(title, count, size) {
+  if (!confirm('Permanently delete all ' + count + ' files for "' + title + '" (' + fmtGb(size) + ') from disk?')) return;
+  await fetch('/downloads/delete-show?title=' + encodeURIComponent(title), { method: 'POST' });
+  if (activeFilter === 'show:' + title) activeFilter = 'all';
+  refresh();
+}
+
+async function deleteAllMedia() {
+  const total = currentData.stats ? currentData.stats.totalFiles : 0;
+  const bytes = currentData.stats ? currentData.stats.totalMediaBytes : 0;
+  if (!total || total === 0) {
+    alert('No downloaded files to delete.');
+    return;
+  }
+  if (!confirm('DANGER: Permanently delete ALL ' + total + ' downloaded files (' + fmtGb(bytes) + ') from local storage?\n\nThis action cannot be undone.')) return;
+  await fetch('/downloads/delete-all', { method: 'POST' });
+  selectedIds.clear();
+  activeFilter = 'all';
+  refresh();
+}
+
+async function deleteSelected() {
+  const ids = Array.from(selectedIds);
+  if (ids.length === 0) return;
+  const selBytes = currentData.localFiles
+    .filter(function(f) { return selectedIds.has(f.id); })
+    .reduce(function(acc, f) { return acc + (Number(f.size) || 0); }, 0);
+  if (!confirm('Permanently delete ' + ids.length + ' selected files (' + fmtGb(selBytes) + ') from disk?')) return;
+  await fetch('/downloads/delete-batch?ids=' + encodeURIComponent(ids.join(',')), { method: 'POST' });
+  selectedIds.clear();
+  refresh();
+}
+
+function setFilter(filter) {
+  activeFilter = filter;
+  render();
+}
+
+function clearFilter() {
+  activeFilter = 'all';
+  searchQuery = '';
+  document.getElementById('search-input').value = '';
+  render();
+}
+
+function onSearchChange() {
+  searchQuery = document.getElementById('search-input').value.trim().toLowerCase();
+  renderFiles();
+}
+
+function onSortChange() {
+  currentSort = document.getElementById('sort-select').value;
+  renderFiles();
+}
+
+function toggleSelect(id) {
+  if (selectedIds.has(id)) selectedIds.delete(id);
+  else selectedIds.add(id);
+  renderBatchBar();
+}
+
+function toggleSelectAll() {
+  const filtered = getFilteredFiles();
+  const allSelected = filtered.length > 0 && filtered.every(function(f) { return selectedIds.has(f.id); });
+  if (allSelected) {
+    filtered.forEach(function(f) { selectedIds.delete(f.id); });
+  } else {
+    filtered.forEach(function(f) { selectedIds.add(f.id); });
+  }
+  render();
+}
+
+function clearSelection() {
+  selectedIds.clear();
+  renderBatchBar();
+  renderFiles();
+}
+
+function getFilteredFiles() {
+  let list = currentData.localFiles || [];
+  if (activeFilter.startsWith('show:')) {
+    const showTitle = activeFilter.slice(5);
+    list = list.filter(function(f) { return (f.title || f.relative_path.split('/')[0]) === showTitle; });
+  } else if (activeFilter === 'type:movie') {
+    list = list.filter(function(f) { return f.type === 'movie'; });
+  } else if (activeFilter === 'type:series') {
+    list = list.filter(function(f) { return f.type === 'series'; });
+  }
+
+  if (searchQuery) {
+    list = list.filter(function(f) {
+      const text = ((f.title || '') + ' ' + (f.relative_path || '') + ' ' + (f.quality || '')).toLowerCase();
+      return text.includes(searchQuery);
+    });
+  }
+
+  list = list.slice().sort(function(a, b) {
+    if (currentSort === 'size-desc') return (Number(b.size) || 0) - (Number(a.size) || 0);
+    if (currentSort === 'size-asc') return (Number(a.size) || 0) - (Number(b.size) || 0);
+    if (currentSort === 'date-desc') return (Number(b.added_at) || 0) - (Number(a.added_at) || 0);
+    if (currentSort === 'title-asc') return (a.title || '').localeCompare(b.title || '');
+    return 0;
+  });
+
+  return list;
+}
+
+function renderStats() {
+  const stats = currentData.stats || {};
+  const limitBytes = stats.allocatedLimitBytes || (100 * 1024 * 1024 * 1024);
+  const usedBytes = Number(stats.totalMediaBytes) || 0;
+  const remainingBytes = Math.max(0, limitBytes - usedBytes);
+  const pct = Math.min(100, (usedBytes / limitBytes) * 100);
+
+  const pctStr = pct.toFixed(1) + '%';
+  const limitGbStr = fmtGb(limitBytes);
+  const usedGbStr = fmtGb(usedBytes);
+  const freeGbStr = fmtGb(remainingBytes);
+
+  document.getElementById('stat-used').textContent = usedGbStr;
+  document.getElementById('stat-sub-used').textContent = pctStr + ' of ' + limitGbStr + ' limit (' + (stats.totalFiles || 0) + ' files)';
+  
+  const miniBar = document.getElementById('mini-bar-fill');
+  if (miniBar) {
+    miniBar.style.width = pctStr;
+    miniBar.style.background = pct >= 100 ? '#f43f5e' : (pct >= 80 ? '#f59e0b' : '#0ea5e9');
+  }
+
+  const storageBar = document.getElementById('storage-bar-fill');
+  const storageVal = document.getElementById('storage-card-val');
+  if (storageBar) {
+    storageBar.style.width = pctStr;
+    storageBar.className = 'storage-bar-fill' + (pct >= 100 ? ' danger' : (pct >= 80 ? ' warn' : ''));
+  }
+  if (storageVal) {
+    storageVal.textContent = usedGbStr + ' of ' + limitGbStr + ' used (' + freeGbStr + ' free)';
+  }
+
+  const limitGbNum = Math.round(limitBytes / (1024 ** 3));
+  if (limitGbNum > 0) {
+    const t25 = document.getElementById('tick-25');
+    const t50 = document.getElementById('tick-50');
+    const t80 = document.getElementById('tick-80');
+    const t100 = document.getElementById('tick-100');
+    if (t25) t25.textContent = Math.round(limitGbNum * 0.25) + ' GB';
+    if (t50) t50.textContent = Math.round(limitGbNum * 0.50) + ' GB';
+    if (t80) t80.textContent = Math.round(limitGbNum * 0.80) + ' GB';
+    if (t100) t100.textContent = limitGbNum + ' GB (Limit)';
+  }
+  
+  const disk = stats.disk || {};
+  const freeCard = document.getElementById('stat-free');
+  freeCard.textContent = fmtGb(remainingBytes) + ' Free';
+  if (usedBytes >= limitBytes) {
+    freeCard.style.color = '#f43f5e';
+    document.getElementById('stat-sub-drive').textContent = '⚠️ Storage quota full! Host Storage Free: ' + fmtGb(disk.freeBytes);
+  } else if (pct >= 80) {
+    freeCard.style.color = '#f59e0b';
+    document.getElementById('stat-sub-drive').textContent = '⚠️ Storage quota at ' + pctStr + '. Host Storage Free: ' + fmtGb(disk.freeBytes);
+  } else {
+    freeCard.style.color = '#fff';
+    document.getElementById('stat-sub-drive').textContent = disk.freeBytes ? 'Host Storage Free: ' + fmtGb(disk.freeBytes) : 'Allocated quota';
+  }
+  
+  document.getElementById('stat-files').textContent = (stats.totalFiles || 0) + ' Files';
+  document.getElementById('stat-sub-breakdown').textContent = (stats.moviesCount || 0) + ' Movies • ' + (stats.seriesCount || 0) + ' Episodes';
+}
+
+function renderActive() {
+  const wrap = document.getElementById('active-wrap');
+  const list = document.getElementById('active-list');
+  const items = currentData.items || [];
+  if (items.length === 0) {
+    wrap.style.display = 'none';
+    return;
+  }
+  wrap.style.display = 'block';
+  list.innerHTML = items.map(function(d) {
+    return '<div class="card">' +
+      '<div class="row">' +
+        '<div><strong>' + escapeHtml(d.filename) + '</strong></div>' +
+        '<button class="btn-base btn-danger btn-sm" onclick="cancelDl(\'' + escapeHtml(d.key) + '\')">Cancel</button>' +
+      '</div>' +
+      '<div class="bar-bg"><div class="bar-fill" style="width:' + d.percent + '%"></div></div>' +
+      '<div class="meta-dl">' + d.percent + '% &bull; ' + fmtGb(d.downloadedBytes) + ' / ' + fmtGb(d.totalBytes) + ' &bull; ' + d.speedMbps + ' MB/s</div>' +
+    '</div>';
+  }).join('');
+}
+
+function renderPills() {
+  const container = document.getElementById('pills-container');
+  const stats = currentData.stats || {};
+  const shows = currentData.shows || [];
+
+  let html = '<div class="pill ' + (activeFilter === 'all' ? 'active' : '') + '" onclick="setFilter(\'all\')">' +
+    'All <span class="count">' + (stats.totalFiles || 0) + ' • ' + fmtGb(stats.totalMediaBytes) + '</span></div>' +
+    '<div class="pill ' + (activeFilter === 'type:movie' ? 'active' : '') + '" onclick="setFilter(\'type:movie\')">' +
+    '🎬 Movies <span class="count">' + (stats.moviesCount || 0) + '</span></div>' +
+    '<div class="pill ' + (activeFilter === 'type:series' ? 'active' : '') + '" onclick="setFilter(\'type:series\')">' +
+    '📺 Series <span class="count">' + (stats.seriesCount || 0) + '</span></div>';
+
+  for (let i = 0; i < shows.length; i++) {
+    const s = shows[i];
+    const isAct = activeFilter === 'show:' + s.title;
+    const icon = s.type === 'movie' ? '🎬' : '📺';
+    html += '<div class="pill ' + (isAct ? 'active' : '') + '" onclick="setFilter(\'show:' + escapeHtml(s.title) + '\')">' +
+      icon + ' ' + escapeHtml(s.title) + ' <span class="count">' + s.fileCount + ' • ' + fmtGb(s.totalBytes) + '</span></div>';
+  }
+  container.innerHTML = html;
+
+  const banner = document.getElementById('filter-banner');
+  if (activeFilter.startsWith('show:')) {
+    const title = activeFilter.slice(5);
+    const show = shows.find(function(s) { return s.title === title; });
+    const count = show ? show.fileCount : 0;
+    const bytes = show ? show.totalBytes : 0;
+    banner.style.display = 'flex';
+    banner.className = 'active-filter-banner';
+    banner.innerHTML = '<div>Filtered by show: <b>' + escapeHtml(title) + '</b> &bull; ' + count + ' file' + (count === 1 ? '' : 's') + ' (' + fmtGb(bytes) + ')</div>' +
+      '<div style="display:flex; gap:8px;">' +
+        '<button class="btn-base btn-primary btn-sm" onclick="clearFilter()">Show All</button>' +
+        '<button class="btn-base btn-danger btn-sm" onclick="deleteShow(\'' + escapeHtml(title) + '\', ' + count + ', ' + bytes + ')">🗑️ Delete Entire Show</button>' +
+      '</div>';
+  } else if (activeFilter !== 'all') {
+    banner.style.display = 'flex';
+    banner.className = 'active-filter-banner';
+    banner.innerHTML = '<div>Filtered by: <b>' + (activeFilter === 'type:movie' ? 'Movies' : 'Series') + '</b></div>' +
+      '<button class="btn-base btn-primary btn-sm" onclick="clearFilter()">Show All</button>';
+  } else {
+    banner.style.display = 'none';
+  }
+}
+
+function renderBatchBar() {
+  const bar = document.getElementById('batch-bar');
+  const count = selectedIds.size;
+  if (count === 0) {
+    bar.style.display = 'none';
+    return;
+  }
+  bar.style.display = 'flex';
+  const selBytes = currentData.localFiles
+    .filter(function(f) { return selectedIds.has(f.id); })
+    .reduce(function(acc, f) { return acc + (Number(f.size) || 0); }, 0);
+  document.getElementById('selected-summary').textContent = count + ' file' + (count === 1 ? '' : 's') + ' selected (' + fmtGb(selBytes) + ')';
+}
+
+function getStremioUrl(f) {
+  const sid = f.stremio_id || f.imdb_id;
+  if (!sid) {
+    const term = f.title || (f.relative_path ? f.relative_path.split('/')[0] : '');
+    return term ? 'stremio:///search?search=' + encodeURIComponent(term) : 'stremio://';
+  }
+  const cleanId = String(sid).replace(/^zpm:/, '');
+  if (f.type === 'movie') {
+    return 'stremio:///detail/movie/' + encodeURIComponent(cleanId) + '/' + encodeURIComponent(cleanId) + '?autoPlay=true';
+  } else if (f.type === 'series') {
+    const s = f.season || 1;
+    const ep = f.episode_start || 1;
+    const videoId = cleanId + ':' + s + ':' + ep;
+    return 'stremio:///detail/series/' + encodeURIComponent(cleanId) + '/' + encodeURIComponent(videoId) + '?autoPlay=true';
+  }
+  return 'stremio:///detail/' + encodeURIComponent(f.type || 'series') + '/' + encodeURIComponent(cleanId) + '?autoPlay=true';
+}
+
+function renderFiles() {
+  const container = document.getElementById('files-list');
+  const filtered = getFilteredFiles();
+
+  if (filtered.length === 0) {
+    container.innerHTML = '<div class="empty-state">No downloaded files match the current filter.</div>';
+    return;
+  }
+
+  const isMobile = window.innerWidth <= 640;
+
+  container.innerHTML = filtered.map(function(f) {
+    const isChecked = selectedIds.has(f.id);
+    const isMovie = f.type === 'movie';
+    const stremioUrl = getStremioUrl(f);
+    const epLabel = isMovie
+      ? 'Movie'
+      : (f.season ? 'S' + String(f.season).padStart(2, '0') + 'E' + String(f.episode_start).padStart(2, '0') : '');
+    const epBadge = epLabel
+      ? (stremioUrl
+          ? '<a href="' + stremioUrl + '" class="badge ' + (isMovie ? 'badge-movie' : 'badge-ep') + '" style="text-decoration:none;" title="Open in Stremio">' + epLabel + '</a>'
+          : '<span class="badge ' + (isMovie ? 'badge-movie' : 'badge-ep') + '">' + epLabel + '</span>')
+      : '';
+    const filename = f.relative_path ? f.relative_path.split('/').pop() : 'Unknown file';
+    const quality = f.quality ? f.quality + 'p' : '';
+    const dateStr = formatDate(f.added_at);
+
+    const metaContent = '<span class="file-play-icon">▶</span> ' + escapeHtml(filename) + (quality ? ' &bull; ' + quality : '') + (dateStr ? ' &bull; ' + dateStr : '');
+    const metaHtml = stremioUrl
+      ? '<a href="' + stremioUrl + '" class="file-meta-link" title="Open in Stremio: ' + escapeHtml(filename) + '">' + metaContent + '</a>'
+      : '<div class="file-meta" title="' + escapeHtml(f.relative_path) + '">' + escapeHtml(filename) + (quality ? ' &bull; ' + quality : '') + (dateStr ? ' &bull; ' + dateStr : '') + '</div>';
+
+    const openBtn = stremioUrl
+      ? '<a href="' + stremioUrl + '" class="btn-stremio" title="Open directly in Stremio">▶ Stremio</a>'
+      : '';
+
+    // Mobile-adaptive card structure
+    if (isMobile) {
+      return '<div class="file-item">' +
+        '<div class="file-item-header">' +
+          '<input type="checkbox" class="file-check" ' + (isChecked ? 'checked' : '') + ' onchange="toggleSelect(\'' + escapeHtml(f.id) + '\')">' +
+          '<div style="flex:1; min-width:0; display:flex; align-items:center; gap:8px;">' +
+            '<span class="file-title" onclick="setFilter(\'show:' + escapeHtml(f.title || '') + '\')" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + escapeHtml(f.title || f.relative_path) + '</span>' +
+            epBadge +
+          '</div>' +
+        '</div>' +
+        '<div style="width:100%; overflow:hidden;">' + metaHtml + '</div>' +
+        '<div class="file-item-footer">' +
+          '<div class="file-size-badge">' + fmtGb(f.size) + '</div>' +
+          '<div class="file-actions">' +
+            openBtn +
+            '<button class="btn-base btn-danger btn-sm" onclick="deleteFile(\'' + escapeHtml(f.id) + '\', \'' + escapeHtml(filename) + '\')">🗑️ Delete</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    }
+
+    return '<div class="file-item">' +
+      '<input type="checkbox" class="file-check" ' + (isChecked ? 'checked' : '') + ' onchange="toggleSelect(\'' + escapeHtml(f.id) + '\')">' +
+      '<div class="file-main">' +
+        '<div class="file-title-row">' +
+          '<span class="file-title" onclick="setFilter(\'show:' + escapeHtml(f.title || '') + '\')" title="Filter by this show">' + escapeHtml(f.title || f.relative_path) + '</span>' +
+          epBadge +
+        '</div>' +
+        metaHtml +
+      '</div>' +
+      '<div class="file-size-badge">' + fmtGb(f.size) + '</div>' +
+      '<div class="file-actions">' +
+        openBtn +
+        '<button class="btn-base btn-danger btn-sm" onclick="deleteFile(\'' + escapeHtml(f.id) + '\', \'' + escapeHtml(filename) + '\')">🗑️ Delete</button>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function render() {
+  renderStats();
+  renderActive();
+  renderPills();
+  renderBatchBar();
+  renderFiles();
+}
+
+async function logout() {
+  try {
+    await fetch('/admin/logout', { method: 'POST' });
+  } catch (e) {}
+  location.href = '/admin/login';
+}
+
+async function refresh() {
+  try {
+    const r = await fetch('/downloads/status');
+    if (r.status === 401) {
+      if (!window._redirecting) {
+        window._redirecting = true;
+        location.href = '/admin/login?next=/downloads';
+      }
+      return;
+    }
+    currentData = await r.json();
+    render();
+  } catch (e) {}
+}
+
+window.addEventListener('resize', function() {
+  renderFiles();
+});
+
+refresh();
+setInterval(refresh, 2000);
+</script>
+</body>
+</html>

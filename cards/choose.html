@@ -1,0 +1,979 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Choose Quality & Release — Stremio Downloader Server</title>
+<style>
+  :root {
+    --bg: #07090e;
+    --bg-gradient: radial-gradient(circle at 50% -10%, rgba(14, 165, 233, 0.12) 0%, transparent 50%), #07090e;
+    --surface: #0e121b;
+    --surface-raised: #141926;
+    --surface-hover: #1a2234;
+    --border: #1e2638;
+    --border-hover: #2b364e;
+    --border-active: #0ea5e9;
+
+    --text: #f8fafc;
+    --text-muted: #94a3b8;
+    --text-dim: #64748b;
+
+    --accent: #0ea5e9;
+    --accent-hover: #38bdf8;
+    --accent-glow: rgba(14, 165, 233, 0.28);
+    --accent-gradient: linear-gradient(135deg, #0284c7 0%, #0ea5e9 50%, #06b6d4 100%);
+    --accent-surface: rgba(14, 165, 233, 0.12);
+    --accent-border: rgba(14, 165, 233, 0.35);
+
+    --emerald: #10b981;
+    --emerald-bg: rgba(16, 185, 129, 0.12);
+    --emerald-border: rgba(16, 185, 129, 0.35);
+
+    --amber: #f59e0b;
+    --amber-bg: rgba(245, 158, 11, 0.12);
+    --amber-border: rgba(245, 158, 11, 0.35);
+
+    --blue: #38bdf8;
+    --blue-bg: rgba(56, 189, 248, 0.12);
+    --blue-border: rgba(56, 189, 248, 0.35);
+
+    --purple: #a855f7;
+    --purple-bg: rgba(168, 85, 247, 0.12);
+    --purple-border: rgba(168, 85, 247, 0.35);
+
+    --rose: #f43f5e;
+    --rose-bg: rgba(244, 63, 94, 0.12);
+    --rose-border: rgba(244, 63, 94, 0.35);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg-gradient);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    margin: 0;
+    padding: 0 0 60px 0;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap {
+    max-width: 1060px;
+    margin: 0 auto;
+    padding: 24px 16px;
+    padding-left: max(16px, env(safe-area-inset-left));
+    padding-right: max(16px, env(safe-area-inset-right));
+  }
+
+  /* Clicky base styling */
+  button, .btn, .nav-btn, .chip, .ep-btn, .ep-pill, .btn-download {
+    font-family: inherit;
+    font-weight: 700;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    transition: transform 0.08s ease, box-shadow 0.08s ease, background 0.15s ease, border-color 0.15s ease;
+  }
+  button:hover, .nav-btn:hover, .chip:hover, .btn-download:hover {
+    transform: translateY(-1px);
+  }
+  button:active, .nav-btn:active, .chip:active, .btn-download:active {
+    transform: translateY(1.5px) !important;
+  }
+
+  /* Top Nav */
+  .top-nav {
+    background: rgba(7, 9, 14, 0.88);
+    backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    padding: 12px 16px;
+    padding-top: max(12px, env(safe-area-inset-top));
+  }
+  .top-nav-inner {
+    max-width: 1060px;
+    margin: 0 auto;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+  }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .logo-icon {
+    width: 38px; height: 38px;
+    border-radius: 11px;
+    background: var(--accent-gradient);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 19px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), 0 3px 0 #0369a1, 0 6px 16px var(--accent-glow);
+    flex-shrink: 0;
+  }
+  .brand-text h1 {
+    margin: 0;
+    font-size: 17px;
+    font-weight: 800;
+    color: #fff;
+    letter-spacing: -0.02em;
+  }
+  .brand-text p { margin: 0; color: var(--text-muted); font-size: 12px; font-weight: 500; }
+
+  .nav-btn {
+    font-size: 12px;
+    border: 1px solid var(--border);
+    background: var(--surface-raised);
+    color: #cbd5e1;
+    border-radius: 9px;
+    padding: 8px 13px;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    box-shadow: 0 2px 0 rgba(0, 0, 0, 0.45);
+  }
+  .nav-btn:hover {
+    background: var(--surface-hover);
+    color: #fff;
+    border-color: var(--border-hover);
+    box-shadow: 0 3px 0 rgba(0, 0, 0, 0.45);
+  }
+  .nav-btn:active {
+    box-shadow: 0 0.5px 0 rgba(0, 0, 0, 0.45);
+  }
+
+  /* Media Banner */
+  .media-banner {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 22px;
+    display: flex;
+    gap: 22px;
+    align-items: center;
+    margin-bottom: 22px;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  }
+  .media-poster {
+    width: 86px;
+    height: 128px;
+    border-radius: 10px;
+    object-fit: cover;
+    background: #141926;
+    flex-shrink: 0;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+  }
+  .media-info { flex: 1; min-width: 0; }
+  .media-badges { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+  .mode-badge {
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 3px 9px;
+    border-radius: 6px;
+    background: var(--accent-surface);
+    color: #7dd3fc;
+    border: 1px solid var(--accent-border);
+  }
+  .media-title {
+    margin: 0 0 5px 0;
+    font-size: 22px;
+    font-weight: 800;
+    color: #fff;
+    letter-spacing: -0.025em;
+  }
+  .media-sub {
+    margin: 0;
+    font-size: 13px;
+    color: var(--text-muted);
+    font-weight: 500;
+  }
+
+  /* Toolbar */
+  .toolbar {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 18px;
+  }
+  .search-input {
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 11px 16px;
+    font-size: 13px;
+    color: #fff;
+    font-family: inherit;
+    outline: none;
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.4);
+    transition: all 0.2s ease;
+  }
+  .search-input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-glow);
+  }
+  .search-input::placeholder { color: var(--text-dim); }
+
+  .filter-chips {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .chip {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 7px 15px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-muted);
+    cursor: pointer;
+    box-shadow: 0 2px 0 rgba(0, 0, 0, 0.35);
+  }
+  .chip:hover {
+    color: #fff;
+    border-color: var(--border-hover);
+    background: var(--surface-raised);
+    transform: translateY(-1px);
+  }
+  .chip:active {
+    transform: translateY(1.5px) !important;
+    box-shadow: 0 0.5px 0 rgba(0, 0, 0, 0.35);
+  }
+  .chip.active {
+    background: var(--accent-gradient);
+    color: #fff;
+    border-color: rgba(56, 189, 248, 0.6);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 2px 0 #0369a1, 0 4px 12px var(--accent-glow);
+  }
+
+  /* Results info */
+  .results-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+    padding: 0 4px;
+  }
+
+  /* Stream list */
+  .stream-list { display: flex; flex-direction: column; gap: 10px; }
+  .stream-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 16px 18px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    transition: transform 0.12s ease, border-color 0.15s ease, background 0.15s ease;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  }
+  .stream-card:hover {
+    background: var(--surface-raised);
+    border-color: var(--border-hover);
+    transform: translateY(-1px);
+  }
+  .stream-card.is-4k { border-left: 4px solid var(--amber); }
+  .stream-card.is-remux { border-left: 4px solid var(--purple); }
+  .stream-card.is-bluray { border-left: 4px solid var(--blue); }
+  .stream-card.is-webdl { border-left: 4px solid var(--emerald); }
+
+  .stream-details { flex: 1; min-width: 0; }
+  .stream-badges {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    align-items: center;
+    margin-bottom: 6px;
+  }
+  .badge {
+    font-size: 11px;
+    font-weight: 800;
+    border-radius: 6px;
+    padding: 3px 8px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    letter-spacing: 0.03em;
+  }
+  .badge-4k { background: var(--amber-bg); color: #fde68a; border: 1px solid var(--amber-border); }
+  .badge-1080p { background: var(--blue-bg); color: #7dd3fc; border: 1px solid var(--blue-border); }
+  .badge-720p { background: rgba(148, 163, 184, 0.12); color: #cbd5e1; border: 1px solid rgba(148, 163, 184, 0.3); }
+  .badge-remux { background: var(--purple-bg); color: #d8b4fe; border: 1px solid var(--purple-border); }
+  .badge-bluray { background: rgba(59, 130, 246, 0.12); color: #93c5fd; border: 1px solid rgba(59, 130, 246, 0.35); }
+  .badge-web { background: var(--emerald-bg); color: #6ee7b7; border: 1px solid var(--emerald-border); }
+  .badge-cached { background: var(--emerald-bg); color: #34d399; border: 1px solid var(--emerald-border); font-weight: 800; }
+  .badge-size { background: #090c14; color: #fff; font-weight: 800; border: 1px solid var(--border); }
+  .badge-tag { background: rgba(255, 255, 255, 0.05); color: #cbd5e1; font-weight: 600; border: 1px solid rgba(255, 255, 255, 0.08); }
+  .badge-lang { background: rgba(255, 255, 255, 0.08); color: #f1f5f9; font-weight: 600; }
+
+  .stream-filename {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 12px;
+    color: #e2e8f0;
+    word-break: break-all;
+    margin-bottom: 5px;
+    line-height: 1.45;
+  }
+  .stream-indexer {
+    font-size: 11px;
+    color: var(--text-muted);
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+    font-weight: 500;
+  }
+
+  /* Episode selector */
+  .ep-btn {
+    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--surface-raised);
+    color: #cbd5e1;
+    cursor: pointer;
+    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.3);
+  }
+  .ep-btn:hover { background: var(--surface-hover); color: #fff; }
+  .ep-btn:active { transform: translateY(1px) !important; }
+
+  .ep-pill {
+    font-size: 12px;
+    padding: 6px 12px;
+    border-radius: 7px;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    background: var(--surface-raised);
+    color: var(--text-muted);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    box-shadow: 0 2px 0 rgba(0, 0, 0, 0.35);
+  }
+  .ep-pill:hover { border-color: var(--accent); color: #fff; }
+  .ep-pill:active { transform: translateY(1px) !important; }
+  .ep-pill.active {
+    background: var(--accent-gradient);
+    border-color: rgba(56, 189, 248, 0.6);
+    color: #fff;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 2px 0 #0369a1, 0 4px 12px var(--accent-glow);
+  }
+  .ep-pill.is-downloaded { border-color: var(--emerald-border); }
+  .ep-pill-local {
+    font-size: 9px;
+    font-weight: 800;
+    color: #34d399;
+    background: var(--emerald-bg);
+    padding: 1px 5px;
+    border-radius: 4px;
+  }
+
+  .stream-actions { flex-shrink: 0; }
+  .btn-download {
+    font-size: 13px;
+    border: 1px solid rgba(56, 189, 248, 0.5);
+    border-radius: 10px;
+    padding: 11px 18px;
+    cursor: pointer;
+    background: var(--accent-gradient);
+    color: #fff;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 3px 0 #0369a1, 0 6px 18px var(--accent-glow);
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap;
+  }
+  .btn-download:hover {
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 4px 0 #0369a1, 0 8px 22px var(--accent-glow);
+  }
+  .btn-download:active {
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15), 0 0.5px 0 #0369a1 !important;
+  }
+  .btn-download:disabled {
+    background: #181d29;
+    color: #64748b;
+    border-color: #242c3d;
+    box-shadow: none;
+    cursor: not-allowed;
+    transform: none !important;
+  }
+
+  /* Empty / Loading state */
+  .state-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 48px 24px;
+    text-align: center;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  }
+  .spinner {
+    width: 38px; height: 38px;
+    border: 3px solid rgba(14, 165, 233, 0.2);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin: 0 auto 16px auto;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Toast Notification */
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    background: var(--surface-raised);
+    border: 1px solid var(--accent);
+    color: #fff;
+    padding: 14px 20px;
+    border-radius: 11px;
+    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 13px;
+    font-weight: 700;
+    z-index: 100;
+    transform: translateY(100px);
+    opacity: 0;
+    transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .toast.show { transform: translateY(0); opacity: 1; }
+
+  /* Smartphone Layout Styles (< 640px) */
+  @media (max-width: 640px) {
+    .wrap { padding: 16px 12px; }
+    .top-nav { padding: 10px 12px; }
+    .top-nav-inner { gap: 10px; }
+    .brand-text h1 { font-size: 15px; }
+    .nav-btn { padding: 6px 10px; font-size: 11px; }
+
+    .media-banner {
+      flex-direction: column;
+      align-items: flex-start;
+      padding: 16px;
+      gap: 14px;
+    }
+    .media-poster {
+      width: 72px;
+      height: 108px;
+    }
+    .media-title { font-size: 18px; }
+
+    .filter-chips {
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      padding-bottom: 6px;
+      scrollbar-width: none;
+    }
+    .filter-chips::-webkit-scrollbar { display: none; }
+
+    /* Stream card mobile layout */
+    .stream-card {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 14px;
+      padding: 14px;
+    }
+    .stream-actions {
+      width: 100%;
+    }
+    .btn-download {
+      width: 100%;
+      justify-content: center;
+      min-height: 44px;
+      font-size: 14px;
+    }
+  }
+</style>
+</head>
+<body>
+
+<header class="top-nav">
+  <div class="top-nav-inner">
+    <div class="brand">
+      <div class="logo-icon">⚡</div>
+      <div class="brand-text">
+        <h1>Source Selection</h1>
+        <p>Stremio Downloader Server</p>
+      </div>
+    </div>
+    <div>
+      <a href="/admin" class="nav-btn">⚙️ App Console</a>
+      <a href="/downloads" class="nav-btn">📊 Live Downloads</a>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <div id="mediaBanner" class="media-banner">
+    <img id="mediaPoster" class="media-poster" src="" alt="Poster" style="display:none;">
+    <div class="media-info">
+      <div class="media-badges">
+        <span id="modeBadge" class="mode-badge">Episode Download</span>
+        <span id="quotaBadge" class="mode-badge" style="display:none;"></span>
+      </div>
+      <h2 id="mediaTitle" class="media-title">Loading Media Details...</h2>
+      <p id="mediaSub" class="media-sub">Querying AIOStreams indexers...</p>
+
+      <!-- Episode selection in season mode -->
+      <div id="epSelectorSection" style="display:none; margin-top:14px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:12px 16px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px;">
+          <div style="font-size:12px; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; display:flex; align-items:center; gap:8px;">
+            <span>Select Episodes:</span>
+            <span id="selectedEpBadge" style="background:var(--accent); color:#fff; padding:1px 8px; border-radius:12px; font-size:11px; font-weight:800;">0 selected</span>
+          </div>
+          <div style="display:flex; gap:6px;">
+            <button type="button" class="ep-btn" onclick="selectAllEpisodes(true)">Select All</button>
+            <button type="button" class="ep-btn" onclick="selectAllEpisodes(false)">Select None</button>
+            <button type="button" class="ep-btn" onclick="selectMissingOnly()">Missing Only</button>
+          </div>
+        </div>
+        <div id="epPillsGrid" style="display:flex; flex-wrap:wrap; gap:6px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toolbar">
+    <div class="search-row">
+      <input type="text" id="searchInput" class="search-input" placeholder="Search sources by release group (e.g. SiC, XEBEC, sodapop), audio (DTS, DD+), or codec..." oninput="applyFilters()">
+    </div>
+    <div class="filter-chips">
+      <span class="chip active" data-filter="cached" onclick="setFilter(this, 'cached')">⚡ Cached Only (<span id="countCached">0</span>)</span>
+      <span class="chip" data-filter="4k" onclick="setFilter(this, '4k')">4K UHD (<span id="count4k">0</span>)</span>
+      <span class="chip" data-filter="remux" onclick="setFilter(this, 'remux')">1080p Remux (<span id="countRemux">0</span>)</span>
+      <span class="chip" data-filter="bluray" onclick="setFilter(this, 'bluray')">1080p BluRay (<span id="countBluray">0</span>)</span>
+      <span class="chip" data-filter="webdl" onclick="setFilter(this, 'webdl')">1080p WEB-DL (<span id="countWebdl">0</span>)</span>
+      <span class="chip" data-filter="720p" onclick="setFilter(this, '720p')">720p (<span id="count720p">0</span>)</span>
+      <span class="chip" data-filter="all" onclick="setFilter(this, 'all')">All Sources (<span id="countAll">0</span>)</span>
+    </div>
+  </div>
+
+  <div class="results-meta">
+    <span id="resultsInfo">Preserving AIOStreams original sorting & Debrid priority</span>
+    <span id="visibleCount">0 sources visible</span>
+  </div>
+
+  <div id="streamList" class="stream-list">
+    <div class="state-box">
+      <div class="spinner"></div>
+      <p style="margin:0; font-size:14px; color:var(--text-muted); font-weight:600;">Fetching and filtering sources from AIOStreams...</p>
+    </div>
+  </div>
+</main>
+
+<div id="toast" class="toast">
+  <span>✓</span>
+  <span id="toastMsg">Download started</span>
+</div>
+
+<script>
+const params = new URLSearchParams(window.location.search);
+const type = params.get('type') || 'series';
+const id = params.get('id') || '';
+const mode = params.get('mode') || (type === 'movie' ? 'movie' : 'episode');
+
+let allStreams = [];
+let currentFilter = 'cached';
+let searchQuery = '';
+let allSeasonEpisodes = [];
+let currentQuota = null;
+let existingEpisodes = [];
+let selectedEpisodes = new Set();
+
+function getDownloadButtonLabel() {
+  if (mode !== 'season') return '⬇ Download Source';
+  if (selectedEpisodes.size === 0) return '⚠️ Select at least 1 ep';
+  if (allSeasonEpisodes.length > 0 && selectedEpisodes.size === allSeasonEpisodes.length) {
+    return `⬇ Download Entire Season (${allSeasonEpisodes.length} eps)`;
+  }
+  return `⬇ Download Selected (${selectedEpisodes.size} eps)`;
+}
+
+function updateButtons() {
+  const lbl = getDownloadButtonLabel();
+  const disabled = (mode === 'season' && selectedEpisodes.size === 0);
+  document.querySelectorAll('.btn-download').forEach(b => {
+    b.innerText = lbl;
+    b.disabled = disabled;
+  });
+  const badge = document.getElementById('selectedEpBadge');
+  if (badge) badge.innerText = `${selectedEpisodes.size} of ${allSeasonEpisodes.length} selected`;
+}
+
+function toggleEpisode(num) {
+  if (selectedEpisodes.has(num)) {
+    selectedEpisodes.delete(num);
+  } else {
+    selectedEpisodes.add(num);
+  }
+  renderEpisodePills();
+  updateButtons();
+}
+
+function selectAllEpisodes(flag) {
+  selectedEpisodes.clear();
+  if (flag) {
+    allSeasonEpisodes.forEach(ep => selectedEpisodes.add(Number(ep.episode)));
+  }
+  renderEpisodePills();
+  updateButtons();
+}
+
+function selectMissingOnly() {
+  selectedEpisodes.clear();
+  allSeasonEpisodes.forEach(ep => {
+    const num = Number(ep.episode);
+    if (!existingEpisodes.includes(num)) {
+      selectedEpisodes.add(num);
+    }
+  });
+  renderEpisodePills();
+  updateButtons();
+}
+
+function renderEpisodePills() {
+  const grid = document.getElementById('epPillsGrid');
+  if (!grid) return;
+  grid.innerHTML = allSeasonEpisodes.map(ep => {
+    const num = Number(ep.episode);
+    const isLocal = existingEpisodes.includes(num);
+    const isSel = selectedEpisodes.has(num);
+    const titleAttr = ep.title ? `${ep.title}` : `Episode ${num}`;
+    return `<div class="ep-pill ${isSel ? 'active' : ''} ${isLocal ? 'is-downloaded' : ''}" title="${titleAttr}" onclick="toggleEpisode(${num})">
+      <span>${isSel ? '✓' : '○'} E${String(num).padStart(2,'0')}</span>
+      ${isLocal ? '<span class="ep-pill-local">Local</span>' : ''}
+    </div>`;
+  }).join('');
+}
+
+function formatBytes(bytes) {
+  if (!bytes || bytes <= 0) return 'Unknown size';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let i = 0;
+  let val = bytes;
+  while (val >= 1024 && i < units.length - 1) {
+    val /= 1024;
+    i++;
+  }
+  return val.toFixed(2) + ' ' + units[i];
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  document.getElementById('toastMsg').innerText = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3500);
+}
+
+async function loadSources() {
+  try {
+    const res = await fetch(`/downloads/sources?type=${encodeURIComponent(type)}&id=${encodeURIComponent(id)}&mode=${encodeURIComponent(mode)}`);
+    if (res.status === 401) {
+      location.href = '/admin/login?next=' + encodeURIComponent(location.pathname + location.search);
+      return;
+    }
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error || ('HTTP ' + res.status));
+    }
+    const data = await res.json();
+    
+    // Update banner
+    const meta = data.meta || {};
+    const titleEl = document.getElementById('mediaTitle');
+    const subEl = document.getElementById('mediaSub');
+    const posterEl = document.getElementById('mediaPoster');
+    const modeBadge = document.getElementById('modeBadge');
+    
+    if (mode === 'season') {
+      modeBadge.innerText = '📦 Season Download';
+    } else if (mode === 'movie') {
+      modeBadge.innerText = '🎥 Movie Download';
+    } else {
+      modeBadge.innerText = '🎬 Episode Download';
+    }
+
+    if (meta.name) {
+      if (mode === 'season') {
+        const parts = id.split(':');
+        titleEl.innerText = `${meta.name} — Season ${parts[1] || ''}`;
+        subEl.innerText = `Pick a release profile below. Stremio Downloader Server will download all remaining episodes in Season ${parts[1] || ''} using this source pack.`;
+      } else if (mode === 'episode') {
+        const parts = id.split(':');
+        const s = parts[1] || '';
+        const e = parts[2] || '';
+        titleEl.innerText = `${meta.name} — S${s.padStart(2,'0')}E${e.padStart(2,'0')}`;
+        const epObj = (meta.videos || []).find(v => Number(v.season) === Number(s) && Number(v.episode) === Number(e));
+        subEl.innerText = epObj?.title ? epObj.title : `Episode ${e}`;
+      } else {
+        titleEl.innerText = meta.name + (meta.year ? ` (${meta.year})` : '');
+        subEl.innerText = meta.genres ? meta.genres.join(' • ') : 'Movie';
+      }
+    }
+    if (meta.poster) {
+      posterEl.src = meta.poster;
+      posterEl.style.display = 'block';
+    }
+
+    currentQuota = data.quota || null;
+    if (currentQuota) {
+      const q = currentQuota;
+      const qBadge = document.getElementById('quotaBadge');
+      if (qBadge) {
+        qBadge.style.display = 'inline-flex';
+        if (q.remainingBytes <= 0) {
+          qBadge.style.background = 'rgba(244, 63, 94, 0.15)';
+          qBadge.style.color = '#fda4af';
+          qBadge.style.border = '1px solid rgba(244, 63, 94, 0.4)';
+          qBadge.innerText = '⚠️ Storage Quota Full (' + formatBytes(q.allocatedLimitBytes) + ')';
+        } else {
+          qBadge.style.background = 'rgba(14, 165, 233, 0.15)';
+          qBadge.style.color = '#7dd3fc';
+          qBadge.style.border = '1px solid rgba(14, 165, 233, 0.35)';
+          qBadge.innerText = '💾 Quota: ' + formatBytes(q.remainingBytes) + ' free of ' + formatBytes(q.allocatedLimitBytes);
+        }
+      }
+    }
+
+    allStreams = (data.streams || []).map((s, i) => ({ ...s, _origIdx: i }));
+    existingEpisodes = data.existingEpisodes || [];
+
+    if (mode === 'season') {
+      const parts = id.split(':');
+      const targetSeason = Number(parts[1] || 1);
+      allSeasonEpisodes = (meta.videos || [])
+        .filter(v => Number(v.season) === targetSeason && Number(v.episode) > 0)
+        .sort((a, b) => Number(a.episode) - Number(b.episode));
+      if (allSeasonEpisodes.length === 0) {
+        allSeasonEpisodes = Array.from({ length: 10 }, (_, i) => ({ season: targetSeason, episode: i + 1 }));
+      }
+      
+      // Default: select missing episodes (or all if all missing/all present)
+      selectedEpisodes.clear();
+      allSeasonEpisodes.forEach(ep => {
+        const num = Number(ep.episode);
+        if (!existingEpisodes.includes(num)) {
+          selectedEpisodes.add(num);
+        }
+      });
+      if (selectedEpisodes.size === 0) {
+        allSeasonEpisodes.forEach(ep => selectedEpisodes.add(Number(ep.episode)));
+      }
+
+      document.getElementById('epSelectorSection').style.display = 'block';
+      renderEpisodePills();
+    }
+
+    computeCounts();
+    applyFilters();
+  } catch (err) {
+    document.getElementById('streamList').innerHTML = `
+      <div class="state-box">
+        <p style="color:#f43f5e; font-weight:700; margin:0 0 8px 0;">Failed to load sources</p>
+        <p style="color:var(--text-muted); font-size:13px; margin:0;">${err.message || 'Network error'}. Make sure Stremio Downloader Server is running and AIOStreams is reachable.</p>
+        <button class="nav-btn" style="margin-top:16px;" onclick="loadSources()">Retry</button>
+      </div>
+    `;
+  }
+}
+
+function computeCounts() {
+  document.getElementById('countAll').innerText = allStreams.length;
+  document.getElementById('count4k').innerText = allStreams.filter(s => s.resolution === '4K').length;
+  document.getElementById('countRemux').innerText = allStreams.filter(s => s.quality === 'Remux').length;
+  document.getElementById('countBluray').innerText = allStreams.filter(s => s.quality === 'BluRay').length;
+  document.getElementById('countWebdl').innerText = allStreams.filter(s => s.quality === 'WEB-DL').length;
+  document.getElementById('count720p').innerText = allStreams.filter(s => s.resolution === '720p').length;
+  document.getElementById('countCached').innerText = allStreams.filter(s => s.cached).length;
+}
+
+function setFilter(el, filter) {
+  document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+  el.classList.add('active');
+  currentFilter = filter;
+  applyFilters();
+}
+
+function applyFilters() {
+  searchQuery = document.getElementById('searchInput').value.trim().toLowerCase();
+  
+  const filtered = allStreams.filter(s => {
+    // Quality chip filter
+    if (currentFilter === '4k' && s.resolution !== '4K') return false;
+    if (currentFilter === 'remux' && s.quality !== 'Remux') return false;
+    if (currentFilter === 'bluray' && s.quality !== 'BluRay') return false;
+    if (currentFilter === 'webdl' && s.quality !== 'WEB-DL') return false;
+    if (currentFilter === '720p' && s.resolution !== '720p') return false;
+    if (currentFilter === 'cached' && !s.cached) return false;
+
+    // Search query filter
+    if (searchQuery) {
+      const haystack = `${s.filename} ${s.qualityLabel} ${s.resolution} ${s.audio} ${s.codec} ${s.indexer} ${s.group}`.toLowerCase();
+      if (!haystack.includes(searchQuery)) return false;
+    }
+    return true;
+  });
+
+  renderStreams(filtered);
+}
+
+function renderStreams(streams) {
+  const container = document.getElementById('streamList');
+  document.getElementById('visibleCount').innerText = `${streams.length} sources visible`;
+
+  if (streams.length === 0) {
+    let emptyMsg = 'No sources match the selected filter.';
+    if (currentFilter === 'cached') {
+      emptyMsg = 'No cached sources found. You can switch to <a href="#" onclick="setFilter(document.querySelector(\'[data-filter=all]\'), \'all\'); return false;" style="color:#38bdf8; font-weight:700; text-decoration:underline;">All Sources</a> to see available uncached streams.';
+    }
+    container.innerHTML = `
+      <div class="state-box">
+        <p style="color:var(--text-muted); margin:0;">${emptyMsg}</p>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = streams.map((s, idx) => {
+    let cardClass = 'stream-card';
+    if (s.resolution === '4K') cardClass += ' is-4k';
+    else if (s.quality === 'Remux') cardClass += ' is-remux';
+    else if (s.quality === 'BluRay') cardClass += ' is-bluray';
+    else if (s.quality === 'WEB-DL') cardClass += ' is-webdl';
+
+    let resBadge = '';
+    if (s.resolution === '4K') resBadge = '<span class="badge badge-4k">4K UHD</span>';
+    else if (s.resolution === '1080p') resBadge = '<span class="badge badge-1080p">1080p</span>';
+    else if (s.resolution === '720p') resBadge = '<span class="badge badge-720p">720p</span>';
+    else resBadge = `<span class="badge badge-720p">${s.resolution || 'SD'}</span>`;
+
+    let qBadge = '';
+    if (s.quality === 'Remux') qBadge = '<span class="badge badge-remux">REMUX</span>';
+    else if (s.quality === 'BluRay') qBadge = '<span class="badge badge-bluray">BluRay</span>';
+    else if (s.quality === 'WEB-DL') qBadge = '<span class="badge badge-web">WEB-DL</span>';
+    else if (s.quality) qBadge = `<span class="badge badge-tag">${s.quality}</span>`;
+
+    const cachedBadge = s.cached ? '<span class="badge badge-cached">⚡ Cached</span>' : '';
+    const isTrueSeasonPack = Boolean(mode === 'season' && s.folderSize && s.videoSize && s.folderSize > s.videoSize * 1.5);
+    
+    let sizeBadge = '';
+    if (isTrueSeasonPack) {
+      sizeBadge = `<span class="badge badge-size">📦 Batch Pack: ${formatBytes(s.folderSize)}</span>`;
+    } else if (s.videoSize) {
+      sizeBadge = `<span class="badge badge-size">${formatBytes(s.videoSize)}${mode === 'season' ? ' / ep' : ''}</span>`;
+    }
+
+    const audioBadge = s.audio ? `<span class="badge badge-tag">🎵 ${s.audio}</span>` : '';
+    const codecBadge = s.codec ? `<span class="badge badge-tag">${s.codec}</span>` : '';
+    const langBadges = (s.languages || []).map(l => `<span class="badge badge-lang">${l}</span>`).join(' ');
+    let quotaWarning = '';
+    if (s.videoSize && currentQuota && s.videoSize > currentQuota.remainingBytes) {
+      quotaWarning = `<span class="badge" style="background:rgba(244,63,94,0.18);color:#fda4af;border:1px solid rgba(244,63,94,0.4);">⚠️ Exceeds Quota</span>`;
+    }
+
+    const buttonLabel = getDownloadButtonLabel();
+    const btnDisabled = (mode === 'season' && selectedEpisodes.size === 0) ? 'disabled' : '';
+
+    let seasonProfileBanner = '';
+    if (mode === 'season') {
+      if (isTrueSeasonPack) {
+        seasonProfileBanner = `<div style="font-size:11px; color:#38bdf8; font-weight:750; margin-bottom:4px; display:flex; align-items:center; gap:6px;"><span>📦 Complete Season Batch</span><span style="background:var(--accent-surface); color:#7dd3fc; padding:1px 6px; border-radius:4px; font-weight:700;">Total: ${formatBytes(s.folderSize)}</span></div>`;
+      } else {
+        seasonProfileBanner = `<div style="font-size:11px; color:#38bdf8; font-weight:750; margin-bottom:4px; display:flex; align-items:center; gap:6px;"><span>🎬 Release Profile</span><span style="background:var(--accent-surface); color:#7dd3fc; padding:1px 6px; border-radius:4px; font-weight:700;">~${formatBytes(s.videoSize || 0)} per episode</span></div>`;
+      }
+    }
+
+    return `
+      <div class="${cardClass}">
+        <div class="stream-details">
+          <div class="stream-badges">
+            ${resBadge}
+            ${qBadge}
+            ${sizeBadge}
+            ${cachedBadge}
+            ${audioBadge}
+            ${codecBadge}
+            ${langBadges}
+            ${quotaWarning}
+          </div>
+          ${seasonProfileBanner}
+          <div class="stream-filename" title="${s.filename}"><span style="color:var(--text-muted); font-size:11px;">${mode === 'season' ? 'Sample file: ' : ''}</span>${s.filename}</div>
+          <div class="stream-indexer">
+            <span>${s.indexer || 'AIOStreams'}</span>
+            ${s.group ? `<span>• Release: <strong>${s.group}</strong></span>` : ''}
+            ${isTrueSeasonPack ? `<span>• Complete Pack: ${formatBytes(s.folderSize)}</span>` : (mode === 'season' && s.videoSize ? `<span>• ~${formatBytes(s.videoSize)} per ep</span>` : '')}
+          </div>
+        </div>
+        <div class="stream-actions">
+          <button class="btn-download" ${btnDisabled} onclick="startDownload(${s._origIdx}, this)">
+            ${buttonLabel}
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+async function startDownload(streamIndex, btnEl) {
+  const s = allStreams[streamIndex];
+  if (!s) return;
+
+  btnEl.disabled = true;
+  btnEl.innerHTML = '<span class="spinner" style="width:14px;height:14px;border-width:2px;margin:0;display:inline-block;vertical-align:middle;"></span> Starting...';
+
+  try {
+    const res = await fetch('/downloads/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type,
+        id,
+        mode,
+        selectedEpisodes: mode === 'season' ? Array.from(selectedEpisodes) : undefined,
+        url: s.url,
+        filename: s.filename,
+        size: s.videoSize,
+        qualityLabel: s.qualityLabel,
+        resolution: s.resolution,
+        quality: s.quality,
+        group: s.group,
+        bingeGroup: s.bingeGroup
+      })
+    });
+
+    if (res.status === 401) {
+      location.href = '/admin/login?next=' + encodeURIComponent(location.pathname + location.search);
+      return;
+    }
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error || ('HTTP ' + res.status));
+    }
+    showToast('Download started! Redirecting to live dashboard...');
+    setTimeout(() => {
+      window.location.href = '/downloads';
+    }, 1200);
+  } catch (err) {
+    btnEl.disabled = false;
+    btnEl.innerText = mode === 'season' ? '⬇ Download Season' : '⬇ Download Source';
+    alert('Failed to start download: ' + (err.message || 'Network error'));
+  }
+}
+
+loadSources();
+</script>
+</body>
+</html>

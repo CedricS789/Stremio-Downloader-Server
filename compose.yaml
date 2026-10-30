@@ -1,0 +1,63 @@
+name: stremio-downloader-server
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
+
+services:
+  nuviflow:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: stremio-downloader-server:latest
+    container_name: stremio-downloader-server
+    platform: linux/amd64
+    restart: unless-stopped
+    init: true
+    ports:
+      - "192.168.1.50:60500:60500"
+      - "100.x.y.z:60500:60500"
+      - "127.0.0.1:60500:60500"
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "60500"
+      BASE_URL: "${BASE_URL:-https://dock.yourdomain.com}"
+      LAN_BASE_URL: "${LAN_BASE_URL:-http://192.168.1.50:60500}"
+      ADDON_NAME: "${ADDON_NAME:-Stremio Downloader Server}"
+      ADMIN_USERNAME: admin
+      ADMIN_PASSWORD: "${NUVI_ADMIN_PASSWORD:?Run scripts/Initialize.ps1 first}"
+      SESSION_SECRET: "${NUVI_SESSION_SECRET:?Run scripts/Initialize.ps1 first}"
+      STREAM_SECRET: "${NUVI_STREAM_SECRET:?Run scripts/Initialize.ps1 first}"
+      DATABASE_PATH: /app/data/media.db
+      MOVIES_PATH: /media/movies
+      TV_PATH: /media/tv
+      SCAN_INTERVAL_MINUTES: "5"
+      WATCH_MEDIA: "true"
+      SCAN_ON_STARTUP: "true"
+      SILO_ENABLED: "false"
+      FALLBACK_ADDON_ENABLED: "false"
+      AIOSTREAMS_BASE_URL: "${AIOSTREAMS_BASE_URL:-}"
+      MEDIA_SOFT_LIMIT_GB: "${MEDIA_SOFT_LIMIT_GB:-100}"
+      TRUST_PROXY: "true"
+    volumes:
+      - nuvi_config:/app/data
+      - "${MEDIA_ROOT:?Run scripts/Initialize.ps1 first}/media/movies:/media/movies"
+      - "${MEDIA_ROOT:?Run scripts/Initialize.ps1 first}/media/tv:/media/tv"
+    networks:
+      default:
+      app-edge:
+        aliases:
+          - dock-origin
+          - stremio-downloader-server
+          - my-media-dock
+    logging: *logging
+
+volumes:
+  nuvi_config: {}
+
+networks:
+  app-edge:
+    external: true
+    name: app-edge

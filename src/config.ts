@@ -1,0 +1,225 @@
+import path from 'node:path';
+
+export interface AppConfig {
+  port: number;
+  host: string;
+  baseUrl: string;
+  addonName: string;
+  tmdbApiKey: string;
+  adminUsername: string;
+  adminPassword: string;
+  sessionSecret: string;
+  streamSecret: string;
+  databasePath: string;
+  databaseBackupEnabled: boolean;
+  databaseBackupIntervalHours: number;
+  databaseBackupRetention: number;
+  moviesPath: string;
+  tvPath: string;
+  animePath: string;
+  scanIntervalMinutes: number;
+  streamTokenExpiryHours: number;
+  longLivedStreamTokens: boolean;
+  minimumFileSizeMb: number;
+  scanConcurrency: number;
+  trustProxy: boolean;
+  logLevel: string;
+  ffprobePath: string;
+  watch: boolean;
+  scanOnStartup: boolean;
+
+  autoRequestEnabled: boolean;
+
+  radarrEnabled: boolean;
+  radarrUrl: string;
+  radarrApiKey: string;
+
+  sonarrEnabled: boolean;
+  sonarrUrl: string;
+  sonarrApiKey: string;
+
+  siloEnabled: boolean;
+  siloUrl: string;
+  siloApiKey: string;
+  siloProfileId: string;
+  siloTranscodeQuality: string;
+  siloRuntimeFallbackEnabled: boolean;
+  siloRuntimeFallbackSlowSegmentMs: number;
+  siloRuntimeFallbackSlowSegmentCount: number;
+  siloRuntimeFallbackStartupMs: number;
+  siloRuntimeFallbackMaxAttempts: number;
+  siloMaxConcurrentStarts: number;
+  siloMaxQueuedStarts: number;
+  siloStartQueueTimeoutMs: number;
+  jellyfinEnabled: boolean;
+  jellyfinUrl: string;
+  jellyfinApiKey: string;
+  jellyfinUserId: string;
+  jellyfinPathMappings: string;
+  plexEnabled: boolean;
+  plexUrl: string;
+  plexToken: string;
+  plexPathMappings: string;
+  showDirectPlay: boolean;
+  fallbackAddonEnabled: boolean;
+  fallbackAddonManifestUrl: string;
+  fallbackAddonTimeoutMs: number;
+  fallbackAddonUseForMissing: boolean;
+  fallbackAddonBeforeTranscode: boolean;
+  fallbackAddonMaxAttempts: number;
+  fallbackAddonStartupBudgetMs: number;
+  fallbackAddonMaxResolution: string;
+  fallbackAddonAllowResolutionDowngrade: boolean;
+  fallbackAddonNetworkAdaptation: boolean;
+  fallbackAddonNetworkHeadroomPercent: number;
+  fallbackAddonNetworkMemoryMinutes: number;
+  fallbackAddonColdStartMbps: number;
+}
+
+function numberValue(value: string | undefined, fallback: number, minimum = 0): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= minimum ? parsed : fallback;
+}
+
+function booleanValue(value: string | undefined, fallback: boolean): boolean {
+  if (value === undefined) return fallback;
+  return ['1', 'true', 'yes', 'on'].includes(value.toLowerCase());
+}
+
+function cleanBaseUrl(value: string): string {
+  return value.trim().replace(/\/+$/, '');
+}
+
+export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
+  const databasePath = env.DATABASE_PATH || path.resolve('data/media.db');
+  return {
+    port: numberValue(env.PORT, 60500, 1),
+    host: env.HOST || '0.0.0.0',
+    baseUrl: cleanBaseUrl(env.BASE_URL || `http://localhost:${env.PORT || 60500}`),
+    addonName: env.ADDON_NAME?.trim() || 'Stremio Downloader Server',
+    tmdbApiKey: env.TMDB_API_KEY?.trim() || '',
+    adminUsername: env.ADMIN_USERNAME?.trim() || 'admin',
+    adminPassword: env.ADMIN_PASSWORD || 'change-me',
+    sessionSecret: env.SESSION_SECRET || 'development-session-secret-change-me',
+    streamSecret: env.STREAM_SECRET || 'development-stream-secret-change-me',
+    databasePath,
+    databaseBackupEnabled: booleanValue(env.DATABASE_BACKUP_ENABLED, true),
+    databaseBackupIntervalHours: Math.min(720, numberValue(
+      env.DATABASE_BACKUP_INTERVAL_HOURS,
+      24,
+      1
+    )),
+    databaseBackupRetention: Math.min(30, Math.floor(numberValue(
+      env.DATABASE_BACKUP_RETENTION,
+      7,
+      1
+    ))),
+    moviesPath: env.MOVIES_PATH || '/media/movies',
+    tvPath: env.TV_PATH || '/media/tv',
+    animePath: env.ANIME_PATH?.trim() || '',
+    scanIntervalMinutes: numberValue(env.SCAN_INTERVAL_MINUTES, 30, 1),
+    streamTokenExpiryHours: numberValue(env.STREAM_TOKEN_EXPIRY_HOURS, 168, 1),
+    longLivedStreamTokens: booleanValue(env.LONG_LIVED_STREAM_TOKENS, false),
+    minimumFileSizeMb: numberValue(env.MINIMUM_FILE_SIZE_MB, 50, 0),
+    scanConcurrency: Math.floor(numberValue(env.SCAN_CONCURRENCY, 2, 1)),
+    trustProxy: booleanValue(env.TRUST_PROXY, false),
+    logLevel: env.LOG_LEVEL || 'info',
+    ffprobePath: env.FFPROBE_PATH || 'ffprobe',
+    watch: booleanValue(env.WATCH_MEDIA, true),
+    scanOnStartup: booleanValue(env.SCAN_ON_STARTUP, true),
+
+    autoRequestEnabled: booleanValue(env.AUTO_REQUEST_ENABLED, false),
+
+    radarrEnabled: booleanValue(env.RADARR_ENABLED, false),
+    radarrUrl: cleanBaseUrl(env.RADARR_URL || ''),
+    radarrApiKey: env.RADARR_API_KEY?.trim() || '',
+
+    sonarrEnabled: booleanValue(env.SONARR_ENABLED, false),
+    sonarrUrl: cleanBaseUrl(env.SONARR_URL || ''),
+    sonarrApiKey: env.SONARR_API_KEY?.trim() || '',
+
+    siloEnabled: booleanValue(env.SILO_ENABLED, false),
+    siloUrl: cleanBaseUrl(
+      env.SILO_URL || 'http://silo:8080'
+    ),
+    siloApiKey: env.SILO_API_KEY?.trim() || '',
+    siloProfileId: env.SILO_PROFILE_ID?.trim() || '',
+    siloTranscodeQuality:
+      env.SILO_TRANSCODE_QUALITY?.trim() || 'auto',
+    siloRuntimeFallbackEnabled: booleanValue(env.SILO_RUNTIME_FALLBACK_ENABLED, true),
+    siloRuntimeFallbackSlowSegmentMs: Math.floor(numberValue(
+      env.SILO_RUNTIME_FALLBACK_SLOW_SEGMENT_MS,
+      2500,
+      1000
+    )),
+    siloRuntimeFallbackSlowSegmentCount: Math.floor(numberValue(
+      env.SILO_RUNTIME_FALLBACK_SLOW_SEGMENT_COUNT,
+      3,
+      2
+    )),
+    siloRuntimeFallbackStartupMs: Math.floor(numberValue(
+      env.SILO_RUNTIME_FALLBACK_STARTUP_MS,
+      20_000,
+      5000
+    )),
+    siloRuntimeFallbackMaxAttempts: Math.min(3, Math.floor(numberValue(
+      env.SILO_RUNTIME_FALLBACK_MAX_ATTEMPTS,
+      2,
+      1
+    ))),
+    siloMaxConcurrentStarts: Math.floor(numberValue(
+      env.SILO_MAX_CONCURRENT_STARTS,
+      2,
+      1
+    )),
+    siloMaxQueuedStarts: Math.floor(numberValue(
+      env.SILO_MAX_QUEUED_STARTS,
+      4,
+      0
+    )),
+    siloStartQueueTimeoutMs: Math.floor(numberValue(
+      env.SILO_START_QUEUE_TIMEOUT_MS,
+      15_000,
+      1000
+    )),
+    jellyfinEnabled: booleanValue(env.JELLYFIN_ENABLED, false),
+    jellyfinUrl: cleanBaseUrl(
+      env.JELLYFIN_URL || 'http://jellyfin:8096'
+    ),
+    jellyfinApiKey: env.JELLYFIN_API_KEY?.trim() || '',
+    jellyfinUserId: env.JELLYFIN_USER_ID?.trim() || '',
+    jellyfinPathMappings: env.JELLYFIN_PATH_MAPPINGS?.trim() || '',
+    plexEnabled: booleanValue(env.PLEX_ENABLED, false),
+    plexUrl: cleanBaseUrl(
+      env.PLEX_URL || 'http://plex:32400'
+    ),
+    plexToken: env.PLEX_TOKEN?.trim() || '',
+    plexPathMappings: env.PLEX_PATH_MAPPINGS?.trim() || '',
+    showDirectPlay: booleanValue(env.SHOW_DIRECT_PLAY, true),
+    fallbackAddonEnabled: booleanValue(env.FALLBACK_ADDON_ENABLED, false),
+    fallbackAddonManifestUrl: env.FALLBACK_ADDON_MANIFEST_URL?.trim() || '',
+    fallbackAddonTimeoutMs: Math.floor(numberValue(
+      env.FALLBACK_ADDON_TIMEOUT_MS,
+      5000,
+      1000
+    )),
+    fallbackAddonUseForMissing: booleanValue(env.FALLBACK_ADDON_USE_FOR_MISSING, true),
+    fallbackAddonBeforeTranscode: booleanValue(env.FALLBACK_ADDON_BEFORE_TRANSCODE, true),
+    fallbackAddonMaxAttempts: Math.floor(numberValue(env.FALLBACK_ADDON_MAX_ATTEMPTS, 10, 1)),
+    fallbackAddonStartupBudgetMs: Math.floor(numberValue(env.FALLBACK_ADDON_STARTUP_BUDGET_MS, 15_000, 5000)),
+    fallbackAddonMaxResolution: env.FALLBACK_ADDON_MAX_RESOLUTION?.trim() || 'auto',
+    fallbackAddonAllowResolutionDowngrade: booleanValue(env.FALLBACK_ADDON_ALLOW_RESOLUTION_DOWNGRADE, true),
+    fallbackAddonNetworkAdaptation: booleanValue(env.FALLBACK_ADDON_NETWORK_ADAPTATION, true),
+    fallbackAddonNetworkHeadroomPercent: numberValue(env.FALLBACK_ADDON_NETWORK_HEADROOM_PERCENT, 35, 0),
+    fallbackAddonNetworkMemoryMinutes: numberValue(env.FALLBACK_ADDON_NETWORK_MEMORY_MINUTES, 45, 1),
+    fallbackAddonColdStartMbps: numberValue(env.FALLBACK_ADDON_COLD_START_MBPS, 0, 0)
+  };
+}
+
+export function validateProductionSecrets(config: AppConfig): string[] {
+  const warnings: string[] = [];
+  if (config.adminPassword === 'change-me') warnings.push('ADMIN_PASSWORD still uses the example value');
+  if (config.sessionSecret.length < 32) warnings.push('SESSION_SECRET should be at least 32 characters');
+  if (config.streamSecret.length < 32) warnings.push('STREAM_SECRET should be at least 32 characters');
+  return warnings;
+}

@@ -1,0 +1,1009 @@
+// @vitest-environment happy-dom
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { adminCss, adminHtml, adminJs } from '../src/admin/assets.js';
+
+const longPath = 'Example Series/Example Series (2020) {tvdb-100001}/Season 06/Example Series (2020) - S06E10 - Example Episode [WEBDL-1080p][EAC3 5.1][h265]-TEST.mkv';
+
+function mediaFile(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'file1', libraryType: 'series', relativePath: longPath, size: 123456, durationSeconds: 1468,
+    bitrate: 8_500_000, videoCodec: 'hevc', audioCodec: 'eac3', width: 1920, height: 1080,
+    audioChannels: 6, audioLanguages: ['eng'], subtitleTracks: [{ language: 'eng', codec: 'subrip' }],
+    parsedTitle: 'Example Series', parsedYear: 2020, quality: '1080p', confidence: null,
+    status: 'unmatched', stremioId: null, mediaItemId: null, currentMatch: null, subtitles: [],
+    probe: { streams: [{ codec_type: 'video', color_transfer: 'smpte2084', very_long_value: 'x'.repeat(1000) }] },
+    ...overrides
+  };
+}
+
+function appState(files = [mediaFile()]) {
+  const matched = files.filter((file) => file.status === 'matched');
+  return {
+    files,
+    recent: files,
+    counts: {
+      movies: matched.filter((file) => file.libraryType === 'movie').length,
+      series: matched.filter((file) => file.libraryType === 'series').length,
+      episodes: matched.filter((file) => file.libraryType === 'series').length,
+      unmatched: files.filter((file) => file.status === 'unmatched').length,
+      errors: files.filter((file) => file.status === 'error').length
+    },
+    logs: [],
+    scan: null,
+    settings: {
+      addonName: 'Nuvi-Flow',
+      baseUrl: 'http://localhost:60500', moviesPath: '/media/movies', tvPath: '/media/tv',
+      addonAccessPath: '/addon/test-secure-install-token',
+      scanIntervalMinutes: 30, minimumFileSizeMb: 50, streamTokenExpiryHours: 168,
+      longLivedStreamTokens: false, adminUsername: 'admin', tmdbConfigured: true,
+      jellyfinEnabled: false, jellyfinUrl: 'http://jellyfin:8096',
+      jellyfinConfigured: false, jellyfinUserId: '', jellyfinPathMappings: '',
+      plexEnabled: false, plexUrl: 'http://plex:32400', plexConfigured: false,
+      plexPathMappings: ''
+    },
+    build: { version: '1.1.1', revision: 'abc123def456' }
+  };
+}
+
+function json(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+}
+
+async function flush(): Promise<void> {
+  for (let index = 0; index < 30; index += 1) await Promise.resolve();
+}
+
+function install(
+  fetchMock: ReturnType<typeof vi.fn>,
+  activity: unknown[] = [],
+  outcomes: unknown[] = []
+): void {
+  document.open();
+  document.write(adminHtml('test-csrf').replace(/<script>[\s\S]*<\/script>/, ''));
+  document.close();
+
+  const routedFetch = vi.fn(async (
+    input: string | URL | Request,
+    init?: RequestInit
+  ) => {
+    if (String(input) === '/admin/api/requests') {
+      return json({ requests: [] });
+    }
+    if (String(input) === '/admin/api/activity') {
+      return json({ activity, outcomes, generatedAt: Date.now() });
+    }
+
+    return fetchMock(input, init);
+  });
+
+  vi.stubGlobal('fetch', routedFetch);
+  Object.defineProperty(window, 'fetch', {
+    configurable: true,
+    value: routedFetch
+  });
+  Object.defineProperty(window, 'confirm', { configurable: true, value: vi.fn(() => true) });
+  Object.defineProperty(window, 'open', { configurable: true, value: vi.fn() });
+  window.eval(adminJs);
+}
+
+describe('media details modal', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.clearAllTimers();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    document.documentElement.innerHTML = '<head></head><body></body>';
+  });
+
+  it('uses viewport-safe responsive CSS with one modal content scroller', () => {
+    expect(adminCss).toContain('width:min(900px,calc(100vw - 32px))');
+    expect(adminCss).toContain('grid-template-rows:auto minmax(0,1fr) auto');
+    expect(adminCss).toContain('.modal-body{padding:20px;min-width:0;max-width:100%;overflow-y:auto;overflow-x:hidden');
+    expect(adminCss).toContain('.info-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))');
+    expect(adminCss).toContain('@media(max-width:600px)');
+    expect(adminCss).toContain('.info-grid{grid-template-columns:1fr}');
+    expect(adminCss).toContain('overflow-wrap:anywhere');
+  });
+
+  it('shows the tested build and secure manifest URL', async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      if (String(input) === '/admin/api/state') return json(appState());
+      return json({ error: 'Unexpected request' }, 500);
+    });
+    install(fetchMock);
+    await flush();
+    expect(document.querySelector('#buildVersion')?.textContent)
+      .toBe('v1.1.1 · abc123def456');
+    expect(document.querySelector('.sidebar-foot .server-state #buildVersion'))
+      .not.toBeNull();
+    expect(document.querySelector('.topbar #buildVersion'))
+      .toBeNull();
+    expect((document.querySelector('#manifestUrl') as HTMLInputElement).value)
+      .toBe('http://localhost:60500/addon/test-secure-install-token/manifest.json');
+  });
+
+  it('groups navigation and Settings into task-oriented sections', async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      if (String(input) === '/admin/api/state') return json(appState());
+      return json({ error: 'Unexpected request' }, 500);
+    });
+    install(fetchMock);
+    await flush();
+
+    expect([...document.querySelectorAll('.nav-label')].map(node => node.textContent))
+      .toEqual(['Monitor', 'Media', 'Playback', 'System']);
+    expect(document.querySelector('[data-view="dashboard"]')?.getAttribute('aria-current'))
+      .toBe('page');
+
+    document.querySelector<HTMLButtonElement>('[data-view="settings"]')!.click();
+    const tabs = [...document.querySelectorAll<HTMLButtonElement>('[data-settings-tab]')];
+    expect(tabs.map(tab => tab.textContent)).toEqual([
+      'General', 'Requests', 'Playback', 'Servers', 'Fallback', 'Security'
+    ]);
+    expect(document.querySelector<HTMLElement>('[data-settings-panel="general"]')?.hidden)
+      .toBe(false);
+    expect(document.querySelector<HTMLElement>('[data-settings-panel="playback"]')?.hidden)
+      .toBe(true);
+
+    document.querySelector<HTMLButtonElement>('[data-settings-tab="playback"]')!.click();
+    expect(document.querySelector('[data-settings-tab="playback"]')?.getAttribute('aria-selected'))
+      .toBe('true');
+    expect(document.querySelector<HTMLElement>('[data-settings-panel="general"]')?.hidden)
+      .toBe(true);
+    expect(document.querySelector<HTMLElement>('[data-settings-panel="playback"]')?.hidden)
+      .toBe(false);
+    expect(document.querySelector('[data-view="settings"]')?.getAttribute('aria-current'))
+      .toBe('page');
+  });
+
+  it('supports keyboard Settings navigation and reveals an invalid hidden field', async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      if (String(input) === '/admin/api/state') return json(appState());
+      return json({ error: 'Unexpected request' }, 500);
+    });
+    install(fetchMock);
+    await flush();
+
+    const general = document.querySelector<HTMLButtonElement>('[data-settings-tab="general"]')!;
+    general.focus();
+    general.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    expect(document.activeElement).toBe(
+      document.querySelector('[data-settings-tab="requests"]')
+    );
+    expect(document.querySelector<HTMLElement>('[data-settings-panel="requests"]')?.hidden)
+      .toBe(false);
+
+    const username = document.querySelector<HTMLInputElement>('#adminUsername')!;
+    username.value = '';
+    username.dispatchEvent(new Event('invalid', { cancelable: true }));
+    expect(document.querySelector<HTMLElement>('[data-settings-panel="security"]')?.hidden)
+      .toBe(false);
+    expect(document.querySelector('[data-settings-tab="security"]')?.getAttribute('aria-selected'))
+      .toBe('true');
+  });
+
+  it('loads and renders sanitized system health only when opened', async () => {
+    const health = {
+      status: 'degraded',
+      generatedAt: Date.now(),
+      expiresAt: Date.now() + 60_000,
+      build: { version: '1.1.1', revision: 'health123' },
+      uptimeSeconds: 3720,
+      checks: [
+        {
+          id: 'database', label: 'Database integrity', status: 'healthy',
+          summary: 'SQLite quick check passed.', latencyMs: 2
+        },
+        {
+          id: 'scanner', label: 'Library scanner', status: 'warning',
+          summary: 'No library scan has completed yet.', latencyMs: null
+        },
+        {
+          id: 'fallback_addon', label: 'Fallback addon', status: 'disabled',
+          summary: 'Fallback addon integration is disabled.', latencyMs: null
+        }
+      ],
+      operations: {
+        scanner: { running: false },
+        silo: {
+          activeSessions: 1, pendingSessions: 0, activeStarts: 1,
+          queuedStarts: 0, maxConcurrentStarts: 2, maxQueuedStarts: 4
+        },
+        fallback: { active: 0, transfers: 0 }
+      },
+      recentOutcomes: {
+        windowMinutes: 60, total: 3, warnings: 1, errors: 0,
+        byFailureDomain: { capacity: 1 }
+      }
+    };
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      if (String(input) === '/admin/api/state') return json(appState());
+      if (String(input).startsWith('/admin/api/system-health')) return json(health);
+      return json({ error: 'Unexpected request' }, 500);
+    });
+    install(fetchMock);
+    await flush();
+
+    expect(fetchMock).not.toHaveBeenCalledWith('/admin/api/system-health', expect.anything());
+    document.querySelector<HTMLButtonElement>('[data-view="health"]')!.click();
+    await flush();
+
+    expect(document.querySelector('#healthSummary')?.textContent)
+      .toContain('System needs attention');
+    expect(document.querySelector('#healthChecks')?.textContent)
+      .toContain('Database integrity');
+    expect(document.querySelector('#healthChecks')?.textContent)
+      .toContain('Fallback addon integration is disabled.');
+    expect(document.querySelector('#healthOperations')?.textContent)
+      .toContain('1 / 2');
+    expect(document.querySelector('#healthOutcomeSummary')?.textContent)
+      .toContain('capacity 1');
+    expect(document.querySelector('#diagnosticsJson')?.textContent)
+      .toContain('"status": "degraded"');
+    expect(document.querySelector<HTMLButtonElement>('#copyDiagnostics')?.disabled)
+      .toBe(false);
+
+    document.querySelector<HTMLButtonElement>('[data-refresh-health]')!.click();
+    await flush();
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/admin/api/system-health?refresh=1',
+      expect.objectContaining({ headers: expect.any(Object) })
+    );
+  });
+
+  it('loads backup operations on demand and creates a recovery point', async () => {
+    const createdAt = Date.now() - 60_000;
+    let backups: any = {
+      running: false,
+      automatic: {
+        enabled: true,
+        intervalHours: 24,
+        retention: 7,
+        nextDueAt: Date.now() + 24 * 60 * 60_000
+      },
+      latest: null,
+      backups: [],
+      lastError: null
+    };
+    const fetchMock = vi.fn(async (
+      input: string | URL | Request,
+      init?: RequestInit
+    ) => {
+      if (String(input) === '/admin/api/state') return json(appState());
+      if (String(input) === '/admin/api/backups' && init?.method === 'POST') {
+        const backup = {
+          id: '1800000000000-deadbeef',
+          createdAt,
+          sizeBytes: 2_621_440,
+          reason: 'manual',
+          integrity: 'verified'
+        };
+        backups = { ...backups, latest: backup, backups: [backup] };
+        return json({ ...backups, created: backup });
+      }
+      if (String(input) === '/admin/api/backups') return json(backups);
+      return json({ error: 'Unexpected request' }, 500);
+    });
+    install(fetchMock);
+    await flush();
+
+    expect(fetchMock).not.toHaveBeenCalledWith('/admin/api/backups', expect.anything());
+    document.querySelector<HTMLButtonElement>('[data-view="backups"]')!.click();
+    await flush();
+    expect(document.querySelector('#backupSummary')?.textContent)
+      .toContain('No verified backup yet');
+    expect(document.querySelector('#backupStats')?.textContent)
+      .toContain('every 24 hours');
+
+    document.querySelector<HTMLButtonElement>('[data-create-backup]')!.click();
+    await flush();
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/admin/api/backups',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({ 'x-csrf-token': 'test-csrf' })
+      })
+    );
+    expect(document.querySelector('#backupSummary')?.textContent)
+      .toContain('Recovery points ready');
+    expect(document.querySelector('#backupRows')?.textContent)
+      .toContain('Manual');
+    expect(document.querySelector('#backupRows')?.textContent)
+      .toContain('2.50 MB');
+    expect(document.querySelector<HTMLAnchorElement>('#backupRows a')?.href)
+      .toContain('/admin/api/backups/1800000000000-deadbeef/download');
+  });
+
+  it('renders live scan progress and safely requests cancellation', async () => {
+    const running = {
+      mode: 'full', phase: 'processing', status: 'running',
+      startedAt: Date.now() - 5_000, elapsedMs: 5_000,
+      discovered: 10, examined: 4, processed: 3, matched: 4,
+      unmatched: 0, errors: 0, progressPercent: 40,
+      cancelRequested: false
+    };
+    const history = [{
+      id: 'scan-1', mode: 'changed', status: 'completed',
+      discovered: 8, processed: 2, matched: 8, unmatched: 0, errors: 0,
+      startedAt: Date.now() - 60_000, finishedAt: Date.now() - 50_000,
+      message: null
+    }];
+    let current: typeof running | null = running;
+    const fetchMock = vi.fn(async (
+      input: string | URL | Request,
+      init?: RequestInit
+    ) => {
+      if (String(input) === '/admin/api/state') return json(appState());
+      if (String(input) === '/admin/api/scans') {
+        return json({ current, recent: history });
+      }
+      if (String(input) === '/admin/api/scan/cancel' && init?.method === 'POST') {
+        current = { ...running, status: 'cancelling', cancelRequested: true };
+        return json({ ok: true, scan: current }, 202);
+      }
+      return json({ error: 'Unexpected request' }, 500);
+    });
+    install(fetchMock);
+    await flush();
+
+    document.querySelector<HTMLButtonElement>('[data-view="logs"]')!.click();
+    await flush();
+
+    expect(document.querySelector('#scanCurrent')?.textContent)
+      .toContain('full scan · processing');
+    expect(document.querySelector('#scanCurrent')?.textContent)
+      .toContain('Discovered10');
+    expect(document.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow'))
+      .toBe('40');
+    expect([...document.querySelectorAll<HTMLButtonElement>('[data-scan]')]
+      .every(button => button.disabled)).toBe(true);
+    expect(document.querySelector<HTMLButtonElement>('[data-cancel-scan]')?.hidden)
+      .toBe(false);
+
+    document.querySelector<HTMLButtonElement>('[data-cancel-scan]')!.click();
+    await flush();
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/admin/api/scan/cancel',
+      expect.objectContaining({ method: 'POST' })
+    );
+    expect(document.querySelector('#scanCurrent')?.textContent)
+      .toContain('Stopping scan safely');
+
+    current = null;
+    history.unshift({
+      ...history[0]!,
+      id: 'scan-2',
+      mode: 'full',
+      status: 'cancelled',
+      message: 'Scan cancelled by an administrator.'
+    });
+    await vi.advanceTimersByTimeAsync(2_000);
+    await flush();
+    expect(document.querySelector('#scanCurrent')?.textContent)
+      .toContain('Scanner idle');
+    expect(document.querySelector('#scanLogs')?.textContent)
+      .toContain('Scan cancelled by an administrator.');
+  });
+
+  it('saves values from every Settings panel in one request', async () => {
+    let saved: Record<string, unknown> | undefined;
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      if (String(input) === '/admin/api/state') return json(appState());
+      if (String(input) === '/admin/api/settings' && init?.method === 'PUT') {
+        saved = JSON.parse(String(init.body));
+        return json({ settings: { ...appState().settings, ...saved } });
+      }
+      return json({ error: 'Unexpected request' }, 500);
+    });
+    install(fetchMock);
+    await flush();
+
+    document.querySelector<HTMLSelectElement>('#siloTranscodeQuality')!.value = '1080p-high';
+    document.querySelector<HTMLInputElement>('#fallbackAddonMaxAttempts')!.value = '12';
+    document.querySelector<HTMLInputElement>('#newPassword')!.value = 'replacement-password';
+    document.querySelector<HTMLFormElement>('#settingsForm')!.requestSubmit();
+    await flush();
+
+    expect(saved).toMatchObject({
+      addonName: 'Nuvi-Flow',
+      siloTranscodeQuality: '1080p-high',
+      fallbackAddonMaxAttempts: '12',
+      newPassword: 'replacement-password'
+    });
+    expect(document.querySelector('#toast')?.textContent).toBe('Settings saved');
+  });
+
+  it('shows live playback decisions in the Activity section', async () => {
+    const fetchMock = vi.fn(async (
+      input: string | URL | Request,
+      init?: RequestInit
+    ) => {
+      if (String(input) === '/admin/api/state') return json(appState());
+      if (
+        String(input) ===
+          '/admin/api/activity/playback-123456789/stop' &&
+        init?.method === 'POST'
+      ) return json({ ok: true });
+      return json({ error: 'Unexpected request' }, 500);
+    });
+    install(fetchMock, [{
+      playbackId: 'playback-123456789',
+      title: 'Example Movie',
+      mediaType: 'movie',
+      season: null,
+      episode: null,
+      deviceLabel: 'Device 12345678',
+      provider: 'silo',
+      route: 'server_transcode_hls',
+      state: 'streaming',
+      stoppable: true,
+      source: {
+        kind: 'local', height: 2160, videoCodec: 'hevc', audioCodec: 'truehd'
+      },
+      target: {
+        height: 1080, videoCodec: 'h264', audioCodec: 'aac', dynamicRange: 'sdr'
+      },
+      fallback: {
+        state: 'completed', reason: 'slow_segments',
+        targetQuality: '1080p-medium', lastAppliedQuality: '1080p-high',
+        attempts: 2, maxAttempts: 2
+      },
+      candidate: null,
+      createdAt: Date.now() - 30_000,
+      lastActivityAt: Date.now(),
+      expiresAt: Date.now() + 60_000
+    }], [{
+      playbackId: 'playback-123456789',
+      title: 'Example Movie',
+      mediaType: 'movie',
+      season: null,
+      episode: null,
+      deviceLabel: 'Device 12345678',
+      provider: 'silo',
+      route: 'server_transcode_hls',
+      code: 'delivery_degraded',
+      level: 'warning',
+      failureDomain: 'ambiguous',
+      reason: 'slow_segments',
+      httpStatus: 200,
+      capabilityEvidence: false,
+      firstObservedAt: Date.now(),
+      lastObservedAt: Date.now()
+    }]);
+    await flush();
+
+    document.querySelector<HTMLButtonElement>('[data-view="activity"]')!.click();
+    await flush();
+
+    const view = document.querySelector('#activity')!;
+    expect(view.classList.contains('active')).toBe(true);
+    expect(view.textContent).toContain('Example Movie');
+    expect(view.textContent).toContain('Silo transcode');
+    expect(view.textContent).toContain('2160p · HEVC · TRUEHD');
+    expect(view.textContent).toContain('1080p · H264 · AAC · SDR');
+    expect(view.textContent).toContain('Quality reduced 2 of 2 · 1080p-high');
+    expect(view.textContent).toContain('Stop stream');
+    expect(view.textContent).toContain('Recent server observations');
+    expect(view.textContent).toContain('Delivery degraded');
+    expect(view.textContent).toContain('ambiguous · slow segments');
+    expect(view.textContent).toContain('No automatic negative evidence');
+    expect(view.textContent).toContain('Playback playback');
+    expect(view.textContent).not.toContain('silo-session');
+
+    document.querySelector<HTMLButtonElement>('[data-stop-playback]')!.click();
+    await flush();
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/admin/api/activity/playback-123456789/stop',
+      expect.objectContaining({ method: 'POST' })
+    );
+    expect(document.querySelector('#toast')?.textContent)
+      .toBe('Playback session stopped');
+  });
+
+  it('loads pseudonymous devices on demand and saves a manual override', async () => {
+    const device = {
+      id: 'device_1234567890abcdef12345678',
+      label: 'Device 12345678',
+      identitySource: 'explicit',
+      firstSeenAt: Date.now() - 60_000,
+      lastSeenAt: Date.now(),
+      revision: 'revision-1',
+      capabilities: [{
+        category: 'video_codec', capability: 'hevc', state: 'supported',
+        evidence: 'observed_success', confidence: .6, successCount: 3,
+        failureCount: 0, lastObservedAt: Date.now()
+      }]
+    };
+    const options = [{
+      category: 'video_codec', capability: 'hevc',
+      label: 'HEVC / H.265', group: 'Video'
+    }];
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      if (String(input) === '/admin/api/state') return json(appState());
+      if (String(input) === '/admin/api/devices') {
+        return json({ devices: [device], options });
+      }
+      if (
+        String(input).endsWith('/capabilities') &&
+        init?.method === 'PUT'
+      ) {
+        return json({
+          ok: true,
+          device: {
+            ...device,
+            revision: 'revision-2',
+            capabilities: [{
+              ...device.capabilities[0],
+              state: 'unsupported',
+              evidence: 'user_override',
+              confidence: 1
+            }]
+          }
+        });
+      }
+      return json({ error: 'Unexpected request' }, 500);
+    });
+    install(fetchMock);
+    await flush();
+
+    expect(fetchMock).not.toHaveBeenCalledWith('/admin/api/devices', expect.anything());
+    document.querySelector<HTMLButtonElement>('[data-view="devices"]')!.click();
+    await flush();
+
+    const view = document.querySelector('#devices')!;
+    expect(view.classList.contains('active')).toBe(true);
+    expect(view.textContent).toContain('Device 12345678');
+    expect(view.textContent).toContain('HEVC / H.265');
+    expect(view.textContent).toContain('Learned from 3 clean playbacks');
+    const select = view.querySelector<HTMLSelectElement>('[data-device-capability]')!;
+    expect(select.value).toBe('auto');
+
+    select.value = 'deny';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    await flush();
+
+    const updateCall = fetchMock.mock.calls.find(call =>
+      String(call[0]).endsWith('/capabilities')
+    );
+    expect(updateCall?.[1]).toMatchObject({ method: 'PUT' });
+    expect(JSON.parse(String(updateCall?.[1]?.body))).toMatchObject({
+      category: 'video_codec',
+      capability: 'hevc',
+      state: 'unsupported'
+    });
+    expect(view.textContent).toContain('Manual override');
+    expect(view.querySelector<HTMLSelectElement>('[data-device-capability]')?.value)
+      .toBe('deny');
+  });
+
+  it('presents Auto as the recommended Silo playback policy', () => {
+    const html = adminHtml('test-csrf');
+    const qualityOptions = html.match(
+      /<select id="siloTranscodeQuality"[\s\S]*?<\/select>/
+    )?.[0] || '';
+
+    expect(qualityOptions).toMatch(
+      /<option value="auto">[^<]*recommended<\/option>/
+    );
+    expect(qualityOptions.indexOf('value="auto"'))
+      .toBeLessThan(qualityOptions.indexOf('value="2160p-high"'));
+    expect(qualityOptions.match(/recommended/g)).toHaveLength(1);
+    expect(html).toContain('lets Silo choose original playback');
+    expect(html).toContain('Separate Direct Play option');
+    expect(html).toContain('Runtime quality fallback');
+    expect(html).toContain('Slow segment threshold');
+    expect(html).toContain('position-preserving quality reduction');
+    expect(html).toContain('Playback admission');
+    expect(html).toContain('Concurrent Silo starts');
+    expect(html).toContain('Silo remains authoritative for active stream');
+    expect(html).toContain('Missing local media');
+    expect(html).toContain('Maximum candidates');
+    expect(html).toContain('Network adaptation');
+    expect(html).toContain('Network memory');
+  });
+
+  it('presents staged Jellyfin and no-Plex-Pass server controls', () => {
+    const html = adminHtml('test-csrf');
+    expect(html).toContain('data-settings-tab="servers"');
+    expect(html).toContain('Jellyfin · Playback server');
+    expect(html).toContain('name="jellyfinUserId"');
+    expect(html).toContain('name="jellyfinPathMappings"');
+    expect(html).toContain('data-test-integration="jellyfin"');
+    expect(html).toContain('data-refresh-mappings="jellyfin"');
+    expect(html).toContain('Plex · Playback server');
+    expect(html).toContain('name="plexPathMappings"');
+    expect(html).toContain('data-test-integration="plex"');
+    expect(html).toContain('data-refresh-mappings="plex"');
+    expect(html).toContain('without requiring Plex Pass');
+    expect(html).toContain('free software transcoding');
+    expect(html).toContain('longest matching prefix wins');
+  });
+
+  it('refreshes provider mappings and renders aggregate-only readiness', async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      if (String(input) === '/admin/api/state') return json(appState());
+      if (String(input) === '/admin/api/integrations/jellyfin/mappings/refresh') {
+        return json({
+          ok: true,
+          service: 'jellyfin',
+          mapping: {
+            total: 4,
+            mapped: 2,
+            pending: 1,
+            stale: 0,
+            notFound: 1,
+            ambiguous: 0,
+            errors: 0,
+            refreshDue: 0,
+            lastUpdatedAt: 1234
+          }
+        });
+      }
+      return json({ error: 'Unexpected request' }, 500);
+    });
+    install(fetchMock);
+    await flush();
+
+    document.querySelector<HTMLButtonElement>(
+      '[data-refresh-mappings="jellyfin"]'
+    )!.click();
+    await flush();
+
+    expect(document.querySelector('#jellyfinMappingStatus')?.textContent)
+      .toBe('2 of 4 exact media mappings ready · 1 pending · 1 not found.');
+    const refreshCall = fetchMock.mock.calls.find(call =>
+      String(call[0]) === '/admin/api/integrations/jellyfin/mappings/refresh'
+    );
+    expect(refreshCall?.[1]?.method).toBe('POST');
+  });
+
+  it('tests Jellyfin and Plex with the correct private credential fields', async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      if (String(input) === '/admin/api/state') return json(appState());
+      if (String(input) === '/admin/api/integrations/jellyfin/test') {
+        return json({
+          ok: true,
+          service: 'jellyfin',
+          instanceName: 'Test Jellyfin',
+          version: '10.11.6',
+          users: [
+            { id: 'user-1', name: 'Viewer', disabled: false },
+            { id: 'user-2', name: 'Retired', disabled: true }
+          ]
+        });
+      }
+      if (String(input) === '/admin/api/integrations/plex/test') {
+        return json({
+          ok: true,
+          service: 'plex',
+          instanceName: 'Test Plex',
+          version: '1.42.2.10156',
+          libraries: [{ id: '1', name: 'Movies', type: 'movie' }],
+          requiresPlexPass: false
+        });
+      }
+      return json({ error: 'Unexpected request' }, 500);
+    });
+    install(fetchMock);
+    await flush();
+
+    const jellyfinKey = document.querySelector<HTMLInputElement>('#jellyfinApiKey')!;
+    jellyfinKey.value = 'private-jellyfin-key';
+    document.querySelector<HTMLButtonElement>('[data-test-integration="jellyfin"]')!.click();
+    await flush();
+    expect(document.querySelector('#jellyfinStatus')?.textContent)
+      .toContain('1 playback user found');
+    expect(document.querySelector<HTMLSelectElement>('#jellyfinUserId')?.options[1]?.textContent)
+      .toBe('Viewer');
+    expect(document.querySelector<HTMLSelectElement>('#jellyfinUserId')?.options[2]?.disabled)
+      .toBe(true);
+
+    const plexToken = document.querySelector<HTMLInputElement>('#plexToken')!;
+    plexToken.value = 'private-plex-token';
+    document.querySelector<HTMLButtonElement>('[data-test-integration="plex"]')!.click();
+    await flush();
+    expect(document.querySelector('#plexStatus')?.textContent)
+      .toContain('no Plex Pass required');
+
+    const jellyfinCall = fetchMock.mock.calls.find(call =>
+      String(call[0]) === '/admin/api/integrations/jellyfin/test'
+    );
+    const plexCall = fetchMock.mock.calls.find(call =>
+      String(call[0]) === '/admin/api/integrations/plex/test'
+    );
+    expect(JSON.parse(String(jellyfinCall?.[1]?.body))).toMatchObject({
+      url: 'http://jellyfin:8096',
+      apiKey: 'private-jellyfin-key'
+    });
+    expect(JSON.parse(String(plexCall?.[1]?.body))).toMatchObject({
+      url: 'http://plex:32400',
+      token: 'private-plex-token'
+    });
+  });
+
+  it('regenerates the secure manifest URL with an explicit warning', async () => {
+    const replacement = '/addon/replacement-secure-install-token';
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      if (String(input) === '/admin/api/state') return json(appState());
+      if (
+        String(input) === '/admin/api/addon-access/regenerate' &&
+        init?.method === 'POST'
+      ) {
+        return json({
+          ok: true,
+          settings: {
+            ...appState().settings,
+            addonAccessPath: replacement
+          }
+        });
+      }
+      return json({ error: 'Unexpected request' }, 500);
+    });
+    install(fetchMock);
+    await flush();
+
+    document.querySelector<HTMLButtonElement>('#regenerateAddonUrl')!.click();
+    await flush();
+
+    expect(window.confirm).toHaveBeenCalledWith(
+      expect.stringContaining('stop working immediately')
+    );
+    expect((document.querySelector('#manifestUrl') as HTMLInputElement).value)
+      .toBe(`http://localhost:60500${replacement}/manifest.json`);
+  });
+
+  it('opens with the complete long path, locks body scroll, and closes by Escape or backdrop', async () => {
+    const file = mediaFile();
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url === '/admin/api/state') return json(appState([file]));
+      if (url === '/admin/api/files/file1') return json({ file });
+      return json({ error: 'Unexpected request' }, 500);
+    });
+    install(fetchMock);
+    await flush();
+
+    const opener = document.querySelector<HTMLButtonElement>('[data-file="file1"]')!;
+    opener.focus();
+    opener.click();
+    await flush();
+
+    const modal = document.querySelector<HTMLDialogElement>('#fileModal')!;
+    expect(modal.open).toBe(true);
+    expect(document.body.classList.contains('modal-open')).toBe(true);
+    expect(document.querySelector('#filePathValue')?.textContent).toBe(longPath);
+    expect(document.querySelector('details.technical-details')?.hasAttribute('open')).toBe(false);
+    expect(document.querySelector('#modalActions')?.textContent).toContain('Ignore');
+    expect(document.querySelector('#modalActions')?.textContent).not.toContain('Remove match');
+
+    vi.advanceTimersByTime(15_000);
+    await flush();
+    expect(opener.isConnected).toBe(false);
+    modal.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(modal.open).toBe(false);
+    expect(document.body.classList.contains('modal-open')).toBe(false);
+    expect((document.activeElement as HTMLElement).dataset.file).toBe('file1');
+
+    document.querySelector<HTMLButtonElement>('#recentList [data-file="file1"]')!.click();
+    await flush();
+    modal.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(modal.open).toBe(false);
+    expect(document.body.classList.contains('modal-open')).toBe(false);
+  });
+
+  it('discards stale detail responses and resets modal-local results between files', async () => {
+    const first = mediaFile();
+    const second = mediaFile({ id: 'file2', parsedTitle: 'Second File', relativePath: 'TV/Second File S01E01.mkv' });
+    let resolveFirst!: (value: Response) => void;
+    const delayedFirst = new Promise<Response>((resolve) => { resolveFirst = resolve; });
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url === '/admin/api/state') return json(appState([first, second]));
+      if (url === '/admin/api/files/file1') return delayedFirst;
+      if (url === '/admin/api/files/file2') return json({ file: second });
+      return json({ error: 'Unexpected request' }, 500);
+    });
+    install(fetchMock);
+    await flush();
+
+    document.querySelector<HTMLButtonElement>('[data-file="file1"]')!.click();
+    document.querySelector<HTMLButtonElement>('[data-file="file2"]')!.click();
+    await flush();
+    expect(document.querySelector('#modalTitle')?.textContent).toBe('Second File');
+    expect(document.querySelector('#filePathValue')?.textContent).toBe('TV/Second File S01E01.mkv');
+    expect(document.querySelector('#tmdbResults')?.textContent).toBe('');
+
+    resolveFirst(json({ file: first }));
+    await flush();
+    expect(document.querySelector('#modalTitle')?.textContent).toBe('Second File');
+    expect(document.querySelector('#modalBody')?.textContent).not.toContain(longPath);
+  });
+
+  it('shows a useful TMDB search error and restores the controls', async () => {
+    const file = mediaFile();
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url === '/admin/api/state') return json(appState([file]));
+      if (url === '/admin/api/files/file1') return json({ file });
+      if (url.startsWith('/admin/api/tmdb/search')) return json({ error: 'The TMDB API key was rejected. Check the key in Settings and try again.' }, 400);
+      return json({ error: 'Unexpected request' }, 500);
+    });
+    install(fetchMock);
+    await flush();
+    document.querySelector<HTMLButtonElement>('[data-file="file1"]')!.click();
+    await flush();
+    document.querySelector<HTMLButtonElement>('#tmdbSearch')!.click();
+    await flush();
+
+    expect(document.querySelector('#tmdbResults')?.textContent).toContain('TMDB API key was rejected');
+    expect(document.querySelector<HTMLButtonElement>('#tmdbSearch')?.disabled).toBe(false);
+    expect(document.querySelector('#tmdbSearchStatus')?.textContent).toBe('Search failed.');
+  });
+
+  it('searches with Enter and keeps controls disabled until the response settles', async () => {
+    const file = mediaFile();
+    let resolveSearch!: (value: Response) => void;
+    const delayedSearch = new Promise<Response>((resolve) => { resolveSearch = resolve; });
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url === '/admin/api/state') return json(appState([file]));
+      if (url === '/admin/api/files/file1') return json({ file });
+      if (url.startsWith('/admin/api/tmdb/search')) return delayedSearch;
+      return json({ error: 'Unexpected request' }, 500);
+    });
+    install(fetchMock);
+    await flush();
+    document.querySelector<HTMLButtonElement>('[data-file="file1"]')!.click();
+    await flush();
+
+    const input = document.querySelector<HTMLInputElement>('#tmdbQuery')!;
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await flush();
+    expect(document.querySelector<HTMLButtonElement>('#tmdbSearch')?.disabled).toBe(true);
+    expect(document.querySelector('#tmdbSearch')?.textContent).toBe('Searching…');
+    expect(document.querySelector('#tmdbSearchStatus')?.textContent).toBe('Searching TMDB…');
+
+    resolveSearch(json({ results: [] }));
+    await flush();
+    expect(document.querySelector<HTMLButtonElement>('#tmdbSearch')?.disabled).toBe(false);
+    expect(document.querySelector('#tmdbSearch')?.textContent).toBe('Search TMDB');
+    expect(document.querySelector('#tmdbSearchStatus')?.textContent).toBe('No matches found.');
+  });
+
+  it('does not overwrite unsaved settings during background polling', async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      if (String(input) === '/admin/api/state') return json(appState());
+      return json({ error: 'Unexpected request' }, 500);
+    });
+    install(fetchMock);
+    await flush();
+    const baseUrl = document.querySelector<HTMLInputElement>('#baseUrl')!;
+    baseUrl.value = 'http://unsaved.example.test';
+    baseUrl.dispatchEvent(new Event('input', { bubbles: true }));
+
+    vi.advanceTimersByTime(15_000);
+    await flush();
+    expect(baseUrl.value).toBe('http://unsaved.example.test');
+  });
+
+  it('ignores an older polling response that arrives after newer library state', async () => {
+    const staleFile = mediaFile();
+    const freshFile = mediaFile({
+      status: 'matched', confidence: 1, mediaItemId: 'item1', stremioId: 'tt1000001',
+      currentMatch: { title: 'Example Series', year: 2020, tmdbId: 100001, stremioId: 'tt1000001', description: null, poster: null }
+    });
+    let stateCall = 0;
+    let resolveStale!: (value: Response) => void;
+    const delayedStale = new Promise<Response>((resolve) => { resolveStale = resolve; });
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      if (String(input) !== '/admin/api/state') return json({ error: 'Unexpected request' }, 500);
+      stateCall += 1;
+      if (stateCall === 1) return json(appState([staleFile]));
+      if (stateCall === 2) return delayedStale;
+      return json(appState([freshFile]));
+    });
+    install(fetchMock);
+    await flush();
+
+    vi.advanceTimersByTime(15_000);
+    await flush();
+    vi.advanceTimersByTime(15_000);
+    await flush();
+    expect(document.querySelector('#stats .stat.alert strong')?.textContent).toBe('0');
+    expect(document.querySelector('#libraryRows')?.textContent).toContain('100% match');
+
+    resolveStale(json(appState([staleFile])));
+    await flush();
+    expect(document.querySelector('#stats .stat.alert strong')?.textContent).toBe('0');
+    expect(document.querySelector('#libraryRows')?.textContent).toContain('100% match');
+  });
+
+  it('keeps a successful match visible when only the background summary refresh fails', async () => {
+    let file = mediaFile();
+    let failNextState = false;
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url === '/admin/api/state') {
+        if (failNextState) { failNextState = false; return json({ error: 'Summary unavailable' }, 503); }
+        return json(appState([file]));
+      }
+      if (url === '/admin/api/files/file1') return json({ file });
+      if (url.startsWith('/admin/api/tmdb/search')) return json({ results: [{ id: 123, title: 'Example Series', year: 2020, confidence: .98 }] });
+      if (url === '/admin/api/files/file1/match' && init?.method === 'POST') {
+        file = mediaFile({
+          status: 'matched', confidence: 1, mediaItemId: 'item1', stremioId: 'tt1000001',
+          currentMatch: { title: 'Example Series', year: 2020, tmdbId: 100001, stremioId: 'tt1000001', description: null, poster: null }
+        });
+        failNextState = true;
+        return json({ ok: true, file });
+      }
+      return json({ error: 'Unexpected request' }, 500);
+    });
+    install(fetchMock);
+    await flush();
+    document.querySelector<HTMLButtonElement>('[data-file="file1"]')!.click();
+    await flush();
+    document.querySelector<HTMLButtonElement>('#tmdbSearch')!.click();
+    await flush();
+    document.querySelector<HTMLButtonElement>('[data-apply-match="123"]')!.click();
+    await flush();
+
+    expect(document.querySelector('.match-card')?.textContent).toContain('Current match');
+    expect(document.querySelector('#modalError')?.textContent).toBe('');
+    expect(document.querySelector('#toast')?.textContent).toBe('Metadata match applied');
+  });
+
+  it('applies and removes a TMDB match, then ignores the file without a page refresh', async () => {
+    let file = mediaFile();
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url === '/admin/api/state') return json(appState([file]));
+      if (url === '/admin/api/files/file1') return json({ file });
+      if (url.startsWith('/admin/api/tmdb/search')) return json({ results: [{ id: 123, title: 'Example Series', year: 2020, overview: 'A fictional series used for automated testing.', confidence: .98 }] });
+      if (url === '/admin/api/files/file1/match' && init?.method === 'POST') {
+        file = mediaFile({
+          status: 'matched', confidence: 1, mediaItemId: 'item1', stremioId: 'tt1000001',
+          currentMatch: { title: 'Example Series', year: 2020, tmdbId: 100001, stremioId: 'tt1000001', description: 'A fictional series used for automated testing.', poster: null }
+        });
+        return json({ ok: true, file });
+      }
+      if (url === '/admin/api/files/file1/unmatch' && init?.method === 'POST') {
+        file = mediaFile();
+        return json({ ok: true, file });
+      }
+      if (url === '/admin/api/files/file1/ignore' && init?.method === 'POST') {
+        file = mediaFile({ status: 'ignored' });
+        return json({ ok: true, file });
+      }
+      return json({ error: 'Unexpected request' }, 500);
+    });
+    install(fetchMock);
+    await flush();
+    document.querySelector<HTMLButtonElement>('[data-file="file1"]')!.click();
+    await flush();
+
+    document.querySelector<HTMLButtonElement>('#tmdbSearch')!.click();
+    await flush();
+    expect(document.querySelector('.search-result')?.textContent).toContain('Apply Match');
+    document.querySelector<HTMLButtonElement>('[data-apply-match="123"]')!.click();
+    await flush();
+    expect(document.querySelector('.match-card')?.textContent).toContain('Current match');
+    expect(document.querySelector('#modalActions')?.textContent).toContain('Remove match');
+    expect(document.querySelector('#modalActions')?.textContent).not.toContain('Ignore');
+
+    document.querySelector<HTMLButtonElement>('[data-action="unmatch"]')!.click();
+    await flush();
+    expect(window.confirm).toHaveBeenCalled();
+    expect(document.querySelector('#modalActions')?.textContent).not.toContain('Remove match');
+    expect(document.querySelector('#modalActions')?.textContent).toContain('Ignore');
+
+    document.querySelector<HTMLButtonElement>('[data-action="ignore"]')!.click();
+    await flush();
+    expect(document.querySelector('#modalBody')?.textContent).toContain('This file is ignored');
+    expect(document.querySelector('#modalActions')?.textContent).toBe('');
+    expect(fetchMock).toHaveBeenCalledWith('/admin/api/files/file1/ignore', expect.objectContaining({ method: 'POST' }));
+  });
+});
