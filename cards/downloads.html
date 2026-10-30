@@ -1009,7 +1009,7 @@
 <script>
 let currentData = { items: [], localFiles: [], shows: [], stats: {} };
 let selectedIds = new Set();
-let activeFilter = 'all';
+let activeFilter = 'type:series';
 let searchQuery = '';
 let currentSort = 'size-desc';
 
@@ -1250,7 +1250,7 @@ async function executeDeletion() {
         body: JSON.stringify({ title: currentDeleteTarget.meta.title, password: password })
       });
       if (res.ok && activeFilter === 'show:' + currentDeleteTarget.meta.title) {
-        activeFilter = 'all';
+        activeFilter = currentDeleteTarget.meta.type === 'movie' ? 'type:movie' : 'type:series';
       }
     }
 
@@ -1286,14 +1286,28 @@ function deleteSelected() {
 }
 
 function setFilter(filter) {
-  activeFilter = filter;
+  if (activeFilter === filter && filter.startsWith('show:')) {
+    const title = filter.slice(5);
+    const show = (currentData.shows || []).find(function(s) { return s.title === title; });
+    activeFilter = show && show.type === 'movie' ? 'type:movie' : 'type:series';
+  } else {
+    activeFilter = filter;
+  }
+  selectedIds.clear();
   render();
 }
 
 function clearFilter() {
-  activeFilter = 'all';
+  if (activeFilter.startsWith('show:')) {
+    const title = activeFilter.slice(5);
+    const show = (currentData.shows || []).find(function(s) { return s.title === title; });
+    activeFilter = show && show.type === 'movie' ? 'type:movie' : 'type:series';
+  } else {
+    activeFilter = 'type:series';
+  }
   searchQuery = '';
   document.getElementById('search-input').value = '';
+  selectedIds.clear();
   render();
 }
 
@@ -1446,9 +1460,13 @@ function renderPills() {
   const stats = currentData.stats || {};
   const shows = currentData.shows || [];
 
-  let html = '<div class="pill ' + (activeFilter === 'all' ? 'active' : '') + '" onclick="setFilter(\'all\')">' +
-    'All <span class="count">' + (stats.totalFiles || 0) + ' • ' + fmtGb(stats.totalMediaBytes) + '</span></div>' +
-    '<div class="pill ' + (activeFilter === 'type:movie' ? 'active' : '') + '" onclick="setFilter(\'type:movie\')">' +
+  if (!activeFilter || activeFilter === 'all') {
+    if ((stats.seriesCount || 0) > 0) activeFilter = 'type:series';
+    else if ((stats.moviesCount || 0) > 0) activeFilter = 'type:movie';
+    else activeFilter = 'type:series';
+  }
+
+  let html = '<div class="pill ' + (activeFilter === 'type:movie' ? 'active' : '') + '" onclick="setFilter(\'type:movie\')">' +
     '🎬 Movies <span class="count">' + (stats.moviesCount || 0) + '</span></div>' +
     '<div class="pill ' + (activeFilter === 'type:series' ? 'active' : '') + '" onclick="setFilter(\'type:series\')">' +
     '📺 Series <span class="count">' + (stats.seriesCount || 0) + '</span></div>';
@@ -1470,13 +1488,7 @@ function renderPills() {
     const bytes = show ? show.totalBytes : 0;
     banner.style.display = 'flex';
     banner.className = 'active-filter-banner';
-    banner.innerHTML = '<div>Filtered by show: <b>' + escapeHtml(title) + '</b> &bull; ' + count + ' file' + (count === 1 ? '' : 's') + ' (' + fmtGb(bytes) + ')</div>' +
-      '<button class="btn-base btn-primary btn-sm" onclick="clearFilter()">Show All</button>';
-  } else if (activeFilter !== 'all') {
-    banner.style.display = 'flex';
-    banner.className = 'active-filter-banner';
-    banner.innerHTML = '<div>Filtered by: <b>' + (activeFilter === 'type:movie' ? 'Movies' : 'Series') + '</b></div>' +
-      '<button class="btn-base btn-primary btn-sm" onclick="clearFilter()">Show All</button>';
+    banner.innerHTML = '<div>Filtered by show: <b>' + escapeHtml(title) + '</b> &bull; ' + count + ' file' + (count === 1 ? '' : 's') + ' (' + fmtGb(bytes) + ')</div>';
   } else {
     banner.style.display = 'none';
   }
