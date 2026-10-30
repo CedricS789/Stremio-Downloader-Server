@@ -1,7 +1,7 @@
 // @ts-nocheck
 import fs from 'node:fs';
 import path from 'node:path';
-import { Readable } from 'node:stream';
+import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { createFallbackMediaToken, createStreamToken, createSessionToken, verifySessionToken, verifyPassword } from '../lib/security.js';
 import { catalogPreview, fullMeta, streamDescription, streamName, streamTitle, streamResolution, streamSourceLabel, videoCodecLabel } from '../stremio/builders.js';
@@ -43,6 +43,7 @@ const activeDownloads = new Map();
 const pendingDeletes = new Map();
 let lastDownloadTriggeredAt = 0;
 let promptUrl = '';
+let sharedSettings = null;
 
 function formatGb(bytes) {
     if (!bytes || bytes <= 0)
@@ -369,6 +370,160 @@ async function fetchCinemeta(type, itemId) {
     }
 }
 
+class GlobalBandwidthLimiter {
+    private lastCheck = Date.now();
+    private tokens = 0;
+
+    async consume(bytes, limitMBps, signal) {
+        if (!limitMBps || limitMBps <= 0) return;
+        const limitBytesPerSec = limitMBps * 1024 * 1024;
+        const maxTokens = limitBytesPerSec * 2;
+
+        while (true) {
+            if (signal?.aborted) {
+                throw new Error('Download aborted');
+            }
+            const now = Date.now();
+            const elapsed = Math.max(0, (now - this.lastCheck) / 1000);
+            this.lastCheck = now;
+            this.tokens = Math.min(maxTokens, this.tokens + (elapsed * limitBytesPerSec));
+
+            if (this.tokens >= bytes) {
+                this.tokens -= bytes;
+                return;
+            }
+
+            const deficit = bytes - this.tokens;
+            const waitMs = Math.min(500, Math.max(10, Math.ceil((deficit / limitBytesPerSec) * 1000)));
+            await new Promise((r) => setTimeout(r, waitMs));
+        }
+    }
+}
+
+class ThrottleTransform extends Transform {
+    constructor(limiter, getLimit, signal) {
+        super();
+        this.limiter = limiter;
+        this.getLimit = getLimit;
+        this.signal = signal;
+    }
+
+    async _transform(chunk, encoding, callback) {
+        if (this.signal?.aborted) {
+            return callback(new Error('Download aborted'));
+        }
+        const limit = this.getLimit();
+        if (limit > 0) {
+            try {
+                await this.limiter.consume(chunk.length, limit, this.signal);
+            } catch (err) {
+                return callback(err);
+            }
+        }
+        this.push(chunk);
+        callback();
+    }
+}
+
+class DownloadQueueManager {
+    constructor() {
+        this.activeCount = 0;
+        this.queue = [];
+    }
+
+    get queueLength() {
+        return this.queue.length;
+    }
+
+    get activeSlots() {
+        return this.activeCount;
+    }
+
+    updateQueuePositions() {
+        for (let i = 0; i < this.queue.length; i++) {
+            const entry = this.queue[i];
+            const item = activeDownloads.get(entry.key);
+            if (item && item.status === 'queued') {
+                item.queuePosition = i + 1;
+            }
+        }
+    }
+
+    async acquireSlot(key, signal, maxSlots) {
+        const limit = Math.max(1, maxSlots || 2);
+        if (this.activeCount < limit && this.queue.length === 0) {
+            this.activeCount++;
+            return;
+        }
+
+        return new Promise((resolve, reject) => {
+            const abortHandler = () => {
+                const idx = this.queue.findIndex(e => e.key === key);
+                if (idx !== -1) {
+                    this.queue.splice(idx, 1);
+                    this.updateQueuePositions();
+                }
+                reject(new Error('Download cancelled in queue'));
+            };
+
+            if (signal.aborted) {
+                return reject(new Error('Download cancelled'));
+            }
+
+            signal.addEventListener('abort', abortHandler, { once: true });
+
+            this.queue.push({
+                key,
+                resolve: () => {
+                    signal.removeEventListener('abort', abortHandler);
+                    resolve();
+                },
+                reject: (err) => {
+                    signal.removeEventListener('abort', abortHandler);
+                    reject(err);
+                },
+                signal
+            });
+
+            this.updateQueuePositions();
+        });
+    }
+
+    releaseSlot(maxSlots) {
+        this.activeCount = Math.max(0, this.activeCount - 1);
+        const limit = Math.max(1, maxSlots || 2);
+
+        while (this.activeCount < limit && this.queue.length > 0) {
+            const next = this.queue.shift();
+            if (!next) break;
+
+            if (next.signal.aborted) {
+                continue;
+            }
+
+            this.activeCount++;
+            this.updateQueuePositions();
+            next.resolve();
+            return;
+        }
+        this.updateQueuePositions();
+    }
+
+    removeFromQueue(key) {
+        const idx = this.queue.findIndex(e => e.key === key);
+        if (idx !== -1) {
+            const [removed] = this.queue.splice(idx, 1);
+            this.updateQueuePositions();
+            removed.reject(new Error('Download cancelled in queue'));
+            return true;
+        }
+        return false;
+    }
+}
+
+const bandwidthLimiter = new GlobalBandwidthLimiter();
+const downloadQueue = new DownloadQueueManager();
+
 async function downloadFileToDisk(key, url, destDir, destFilename, expectedBytes, onComplete, checkSpaceFn) {
     if (typeof checkSpaceFn === 'function' && expectedBytes && expectedBytes > 0) {
         const check = checkSpaceFn(expectedBytes);
@@ -398,12 +553,24 @@ async function downloadFileToDisk(key, url, destDir, destFilename, expectedBytes
         partPath,
         downloadedBytes: 0,
         totalBytes: expectedBytes || 0,
-        startedAt: Date.now(),
-        status: 'downloading',
+        startedAt: null,
+        status: 'queued',
+        queuePosition: downloadQueue.queueLength + 1,
         controller
     };
     activeDownloads.set(key, state);
+
+    let slotAcquired = false;
+    let stallTimer = null;
+    const maxConcurrent = sharedSettings ? sharedSettings.maxConcurrentDownloads : 2;
+
     try {
+        await downloadQueue.acquireSlot(key, controller.signal, maxConcurrent);
+        slotAcquired = true;
+        state.status = 'downloading';
+        state.queuePosition = 0;
+        state.startedAt = Date.now();
+
         const resp = await fetch(url, {
             headers: { 'User-Agent': 'Stremio/5.0' },
             redirect: 'follow',
@@ -423,18 +590,48 @@ async function downloadFileToDisk(key, url, destDir, destFilename, expectedBytes
                 }
             }
         }
+
+        const throttleStream = new ThrottleTransform(
+            bandwidthLimiter,
+            () => (sharedSettings ? sharedSettings.maxDownloadSpeedMBps : 0),
+            controller.signal
+        );
+
         const fileStream = fs.createWriteStream(partPath);
         const nodeStream = Readable.fromWeb(resp.body);
+
+        const stallTimeoutSec = sharedSettings ? sharedSettings.downloadTimeoutSeconds : 60;
+        const stallTimeoutMs = Math.max(15, stallTimeoutSec || 60) * 1000;
+        const resetStallTimer = () => {
+            if (stallTimer) clearTimeout(stallTimer);
+            stallTimer = setTimeout(() => {
+                controller.abort(new Error(`Download stalled: no data received for ${Math.round(stallTimeoutMs / 1000)}s`));
+            }, stallTimeoutMs);
+        };
+
         nodeStream.on('data', (chunk) => {
             state.downloadedBytes += chunk.length;
+            resetStallTimer();
         });
-        await pipeline(nodeStream, fileStream, { signal: controller.signal });
+
+        resetStallTimer();
+
+        await pipeline(nodeStream, throttleStream, fileStream, { signal: controller.signal });
+        if (stallTimer) {
+            clearTimeout(stallTimer);
+            stallTimer = null;
+        }
+
         fs.renameSync(partPath, finalPath);
         if (typeof onComplete === 'function') {
             await onComplete();
         }
     }
     catch (err) {
+        if (stallTimer) {
+            clearTimeout(stallTimer);
+            stallTimer = null;
+        }
         try {
             if (fs.existsSync(partPath))
                 fs.unlinkSync(partPath);
@@ -443,6 +640,15 @@ async function downloadFileToDisk(key, url, destDir, destFilename, expectedBytes
         throw err;
     }
     finally {
+        if (stallTimer) {
+            clearTimeout(stallTimer);
+            stallTimer = null;
+        }
+        if (slotAcquired) {
+            downloadQueue.releaseSlot(sharedSettings ? sharedSettings.maxConcurrentDownloads : 2);
+        } else {
+            downloadQueue.removeFromQueue(key);
+        }
         activeDownloads.delete(key);
     }
 }
@@ -541,6 +747,7 @@ function headerValue(request, name) {
 }
 
 export function registerStremioRoutes(app, database, settings, config, requester, fallbackAddon, networkProfiles, deviceCapabilities) {
+    sharedSettings = settings;
     // Add the local download manager to the existing admin navigation.
     app.addHook('onSend', async (request, reply, payload) => {
         if (request.url.split('?')[0] === '/admin' && typeof payload === 'string' && payload.includes('data-view="library">Library</button>')) {
@@ -554,6 +761,9 @@ export function registerStremioRoutes(app, database, settings, config, requester
     app.get('/admin/', async (_request, reply) => reply.redirect('/admin'));
     const prefix = '/addon/:accessToken';
     const triggerRescan = async () => {
+        if (!settings.autoRescanOnDownload) {
+            return;
+        }
         if (typeof requester?.libraryRescan === 'function') {
             try {
                 await requester.libraryRescan();
@@ -721,14 +931,16 @@ export function registerStremioRoutes(app, database, settings, config, requester
         }
         const items = [...activeDownloads.values()].map((d) => {
             const elapsedSec = Math.max(1, (Date.now() - (d.startedAt || Date.now())) / 1000);
-            const speedBps = d.downloadedBytes / elapsedSec;
+            const speedBps = d.status === 'queued' ? 0 : d.downloadedBytes / elapsedSec;
             return {
                 key: d.key,
                 filename: d.filename,
                 downloadedBytes: d.downloadedBytes,
                 totalBytes: d.totalBytes,
                 speedMbps: Number((speedBps / (1024 ** 2)).toFixed(2)),
-                percent: d.totalBytes > 0 ? Math.min(99, Math.round((d.downloadedBytes / d.totalBytes) * 100)) : 0
+                percent: d.totalBytes > 0 ? Math.min(99, Math.round((d.downloadedBytes / d.totalBytes) * 100)) : 0,
+                status: d.status || 'downloading',
+                queuePosition: d.queuePosition || 0
             };
         });
 
@@ -1099,6 +1311,7 @@ export function registerStremioRoutes(app, database, settings, config, requester
         const active = activeDownloads.get(key);
         if (active) {
             if (active.controller) active.controller.abort();
+            downloadQueue.removeFromQueue(key);
             activeDownloads.delete(key);
         }
         return reply.send({ ok: true });
@@ -1436,15 +1649,18 @@ export function registerStremioRoutes(app, database, settings, config, requester
             else {
                 const active = activeDownloads.get(`movie:${id}`);
                 if (active) {
+                    const desc = active.status === 'queued'
+                        ? `⏳ Queued (${active.queuePosition ? '#' + active.queuePosition : 'waiting'})\nWaiting for download slot`
+                        : `⏳ Downloading Movie\n${formatProgressBar(active.downloadedBytes, active.totalBytes, active.startedAt)}`;
                     streams.push({
                         name: addonName,
-                        description: `⏳ Downloading Movie\n${formatProgressBar(active.downloadedBytes, active.totalBytes, active.startedAt)}`,
+                        description: desc,
                         url: `${settings.baseUrl}/addon/${encodeURIComponent(accessToken)}/download/status/${encodeURIComponent(id)}`,
                         behaviorHints: { bingeGroup: `nuvi-flow:dl:${id}` }
                     });
                     streams.push({
                         name: addonName,
-                        description: `🛑 Cancel Movie Download\nStop active download`,
+                        description: active.status === 'queued' ? `🛑 Remove from Queue\nCancel queued download` : `🛑 Cancel Movie Download\nStop active download`,
                         url: `${settings.baseUrl}/addon/${encodeURIComponent(accessToken)}/cancel/movie/${encodeURIComponent(id)}`,
                         behaviorHints: { bingeGroup: `nuvi-flow:cancel:${id}` }
                     });
@@ -1481,15 +1697,18 @@ export function registerStremioRoutes(app, database, settings, config, requester
             else {
                 const activeEp = activeDownloads.get(epKey);
                 if (activeEp) {
+                    const desc = activeEp.status === 'queued'
+                        ? `⏳ Queued (${activeEp.queuePosition ? '#' + activeEp.queuePosition : 'waiting'})\nWaiting for download slot`
+                        : `⏳ Downloading S${ss}E${ee}\n${formatProgressBar(activeEp.downloadedBytes, activeEp.totalBytes, activeEp.startedAt)}`;
                     streams.push({
                         name: addonName,
-                        description: `⏳ Downloading S${ss}E${ee}\n${formatProgressBar(activeEp.downloadedBytes, activeEp.totalBytes, activeEp.startedAt)}`,
+                        description: desc,
                         url: `${settings.baseUrl}/addon/${encodeURIComponent(accessToken)}/download/status/${encodeURIComponent(id)}`,
                         behaviorHints: { bingeGroup: `nuvi-flow:dl:ep:${id}` }
                     });
                     streams.push({
                         name: addonName,
-                        description: `🛑 Cancel S${ss}E${ee} Download\nStop active download`,
+                        description: activeEp.status === 'queued' ? `🛑 Remove from Queue\nCancel queued download` : `🛑 Cancel S${ss}E${ee} Download\nStop active download`,
                         url: `${settings.baseUrl}/addon/${encodeURIComponent(accessToken)}/cancel/episode/${encodeURIComponent(id)}`,
                         behaviorHints: { bingeGroup: `nuvi-flow:cancel:ep:${id}` }
                     });

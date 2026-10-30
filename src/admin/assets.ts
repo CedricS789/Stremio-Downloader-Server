@@ -33,6 +33,7 @@ export function adminHtml(csrf: string): string {
 
 <div class="settings-nav" role="tablist" aria-label="Settings sections">
   <button class="settings-tab active" id="settings-tab-general" type="button" role="tab" aria-selected="true" aria-controls="settings-panel-general" tabindex="0" data-settings-tab="general">General</button>
+  <button class="settings-tab" id="settings-tab-downloads" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-downloads" tabindex="-1" data-settings-tab="downloads">Downloads Engine</button>
   <button class="settings-tab" id="settings-tab-storage" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-storage" tabindex="-1" data-settings-tab="storage">Storage & Quota</button>
   <button class="settings-tab" id="settings-tab-streaming" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-streaming" tabindex="-1" data-settings-tab="streaming">Network & Streaming</button>
   <button class="settings-tab" id="settings-tab-security" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-security" tabindex="-1" data-settings-tab="security">Security</button>
@@ -84,6 +85,45 @@ export function adminHtml(csrf: string): string {
   <label for="tmdbApiKey">TMDB API key (optional)</label>
   <input id="tmdbApiKey" class="input" name="tmdbApiKey" type="password" placeholder="Optional — automatic metadata works via Cinemeta">
   <p class="help" id="tmdbStatus"></p>
+</div>
+</section>
+
+<!-- Panel: Downloads Engine (NEW!) -->
+<section class="settings-panel" id="settings-panel-downloads" role="tabpanel" aria-labelledby="settings-tab-downloads" data-settings-panel="downloads" hidden>
+<div class="settings-section">
+  <h3>Download Concurrency & Queue</h3>
+  <p>Control simultaneous file downloads to prevent server overload and disk contention.</p>
+</div>
+<div class="field">
+  <label for="maxConcurrentDownloads">Max Concurrent Downloads</label>
+  <input id="maxConcurrentDownloads" class="input" name="maxConcurrentDownloads" type="number" min="1" max="10" step="1" required placeholder="2">
+  <p class="help">Maximum active file downloads running at once. Additional downloads wait in queue and begin automatically as slots open.</p>
+</div>
+<div class="field">
+  <label for="downloadTimeoutSeconds">Download Stall Timeout (seconds)</label>
+  <input id="downloadTimeoutSeconds" class="input" name="downloadTimeoutSeconds" type="number" min="15" max="300" step="5" required placeholder="60">
+  <p class="help">If no data is received from the remote source within this timeframe, the stalled download fails gracefully and frees its slot.</p>
+</div>
+<div class="settings-section">
+  <h3>Bandwidth Throttling</h3>
+  <p>Global download rate limiting across all active download streams.</p>
+</div>
+<div class="field full">
+  <label for="maxDownloadSpeedMBps">Max Download Speed (MB/s)</label>
+  <input id="maxDownloadSpeedMBps" class="input" name="maxDownloadSpeedMBps" type="number" min="0" max="1000" step="1" placeholder="0">
+  <p class="help">Global speed cap in Megabytes per second (MB/s). Set to 0 for unlimited maximum network speed.</p>
+</div>
+<div class="settings-section">
+  <h3>Automation & Post-Processing</h3>
+  <p>Post-download tasks and library integration.</p>
+</div>
+<div class="field full">
+  <label for="autoRescanOnDownload">Auto-Rescan Library on Download Finish</label>
+  <select id="autoRescanOnDownload" class="select" name="autoRescanOnDownload">
+    <option value="true">Enabled (instantly index finished files for Stremio)</option>
+    <option value="false">Disabled (wait for scheduled interval)</option>
+  </select>
+  <p class="help">Automatically runs an incremental library scan when a download completes so it appears immediately in Stremio and Media Library.</p>
 </div>
 </section>
 
@@ -296,7 +336,7 @@ function formatScanElapsed(milliseconds){const seconds=Math.max(0,Math.floor(Num
 function renderScanOperations(){const current=state.scan,box=document.getElementById('scanCurrent'),history=document.getElementById('scanLogs'),last=document.getElementById('lastScan'),cancel=document.querySelector('[data-cancel-scan]');document.querySelectorAll('[data-scan]').forEach(button=>{button.disabled=Boolean(current)});if(cancel){cancel.hidden=!current;cancel.disabled=!current||Boolean(current.cancelRequested);cancel.textContent=current?.cancelRequested?'Stopping…':'Cancel scan'}if(box){if(current){const phase=String(current.phase||'working').replaceAll('_',' '),percent=current.progressPercent==null?null:Math.max(0,Math.min(100,Number(current.progressPercent)||0)),progressClass=percent==null?'scan-progress-track indeterminate':'scan-progress-track';box.className='scan-current active';box.innerHTML='<div class="scan-current-head"><div><div class="scan-current-title">'+esc(current.status==='cancelling'?'Stopping scan safely…':String(current.mode||'changed')+' scan · '+phase)+'</div><div class="scan-current-meta">Started '+esc(new Date(current.startedAt).toLocaleString())+' · elapsed '+esc(formatScanElapsed(current.elapsedMs))+'</div></div>'+scanStatusBadge(current.status)+'</div><div class="'+progressClass+'" role="progressbar" aria-label="Scan progress" aria-valuemin="0" aria-valuemax="100"'+(percent==null?'':' aria-valuenow="'+esc(percent)+'"')+'><div class="scan-progress-bar" style="'+(percent==null?'':'width:'+esc(percent)+'%')+'"></div></div><div class="scan-metrics"><div class="scan-metric"><span>Discovered</span><strong>'+esc(current.discovered||0)+'</strong></div><div class="scan-metric"><span>Examined</span><strong>'+esc(current.examined||0)+'</strong></div><div class="scan-metric"><span>Changed</span><strong>'+esc(current.processed||0)+'</strong></div><div class="scan-metric"><span>Matched</span><strong>'+esc(current.matched||0)+'</strong></div><div class="scan-metric"><span>Errors</span><strong>'+esc(current.errors||0)+'</strong></div></div>'}else{box.className='scan-current';box.innerHTML='<div class="scan-current-head"><div><div class="scan-current-title">Scanner idle</div><div class="scan-current-meta">Start a changed-file scan or a full media reinspection.</div></div>'+scanStatusBadge('idle')+'</div>'}}if(history){history.innerHTML=(state.logs||[]).map(run=>{const elapsed=run.finishedAt?formatScanElapsed(Number(run.finishedAt)-Number(run.startedAt)):'No finish time',details=run.discovered+' found · '+run.processed+' changed · '+run.matched+' matched · '+run.unmatched+' unmatched · '+run.errors+' errors';return '<div class="scan-history-row"><div class="scan-history-main"><div class="scan-history-title">'+esc(new Date(run.startedAt).toLocaleString())+'</div><div class="scan-history-meta">'+esc(String(run.mode||'unknown')+' scan · '+elapsed)+'</div></div>'+scanStatusBadge(run.status)+'<div class="scan-history-main"><div class="scan-history-title">'+esc(details)+'</div>'+(run.message?'<div class="scan-history-meta">'+esc(run.message)+'</div>':'')+'</div></div>'}).join('')||'<div class="empty">No scans have run yet.</div></div>'}if(last){const latest=(state.logs||[])[0];last.textContent=current?'Scan in progress · '+String(current.phase||'working').replaceAll('_',' '):latest?'Last scan '+new Date(latest.startedAt).toLocaleString()+' · '+latest.status:'No scans have run yet'}}
 function renderLibrary(){const term=(document.getElementById('librarySearch').value||'').toLowerCase(),type=document.getElementById('libraryType').value;const rows=state.files.filter(f=>(!type||f.libraryType===type)&&(!term||(f.parsedTitle||'').toLowerCase().includes(term)||f.relativePath.toLowerCase().includes(term)));document.getElementById('libraryRows').innerHTML=rows.map(f=>'<tr><td><strong>'+esc(f.displayTitle||f.parsedTitle||'Unknown')+'</strong></td><td>'+esc(f.libraryType)+'</td><td>'+esc(f.relativePath)+'</td><td>'+esc(f.quality||f.height&&f.height+'p'||'—')+'</td><td>'+duration(f.durationSeconds)+'</td><td>'+statusBadge(f)+'</td><td><button class="btn small" type="button" data-file="'+esc(f.id)+'">Open</button></td></tr>').join('')||'<tr><td colspan="7"><div class="empty">No files match this filter.</div></td></tr>'}
 function setSelectValue(select,value,label){if(!select)return;const stringValue=String(value??'');if(stringValue&&!Array.from(select.options).some(option=>option.value===stringValue)){const option=document.createElement('option');option.value=stringValue;option.textContent=label||stringValue;select.appendChild(option)}select.value=stringValue}
-function fillSettings(force=false){if(settingsDirty&&!force)return;const form=document.getElementById('settingsForm'),s=state.settings;for(const name of ['addonName','baseUrl','mediaSoftLimitGb','lanBaseUrl','moviesPath','tvPath','scanIntervalMinutes','minimumFileSizeMb','streamTokenExpiryHours','longLivedStreamTokens','adminUsername'])if(form.elements[name])form.elements[name].value=String(s[name]??'');document.getElementById('tmdbStatus').textContent=s.metadataProvider||'Automatic metadata is active.';refreshBranding();syncManifestUrl()}
+function fillSettings(force=false){if(settingsDirty&&!force)return;const form=document.getElementById('settingsForm'),s=state.settings;for(const name of ['addonName','baseUrl','mediaSoftLimitGb','lanBaseUrl','moviesPath','tvPath','scanIntervalMinutes','minimumFileSizeMb','streamTokenExpiryHours','longLivedStreamTokens','adminUsername','maxConcurrentDownloads','maxDownloadSpeedMBps','downloadTimeoutSeconds','autoRescanOnDownload'])if(form.elements[name])form.elements[name].value=String(s[name]??'');document.getElementById('tmdbStatus').textContent=s.metadataProvider||'Automatic metadata is active.';refreshBranding();syncManifestUrl()}
 async function load(){const request=++stateRequest,data=await api('/admin/api/state');if(request!==stateRequest)return;state={...state,...data};render()}
 async function loadHealth(force=false){const request=++healthRequest,summary=document.getElementById('healthSummary');if(!state.health&&summary){summary.className='health-banner';summary.innerHTML='<div><div class="health-banner-title">Running system checks…</div><div class="health-banner-meta">External checks are bounded and cached for one minute.</div></div>'}try{const data=await api('/admin/api/system-health'+(force?'?refresh=1':''));if(request!==healthRequest)return;state.health=data;renderHealth()}catch(err){if(request===healthRequest&&summary){summary.className='health-banner danger';summary.innerHTML='<div><div class="health-banner-title">System checks could not run</div><div class="health-banner-meta">'+esc(err.message||'The diagnostic request failed.')+'</div></div>'+diagnosticBadge('error')}throw err}}
 async function refreshHealth(button){const original=button.textContent;button.disabled=true;button.textContent='Checking…';try{await loadHealth(true);toast('System checks refreshed')}catch(err){toast(err.message||'System checks failed')}finally{button.disabled=false;button.textContent=original}}

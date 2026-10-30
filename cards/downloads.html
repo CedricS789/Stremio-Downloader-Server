@@ -1587,6 +1587,18 @@ function renderActive() {
   }
   wrap.style.display = 'block';
   list.innerHTML = items.map(function(d) {
+    if (d.status === 'queued') {
+      return '<div class="card" style="border-color: rgba(245, 158, 11, 0.4); background: linear-gradient(180deg, #18140c 0%, #0d0d0d 100%);">' +
+        '<div class="row">' +
+          '<div style="display:flex; align-items:center; gap:8px;">' +
+            '<span style="background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); font-size: 11px; padding: 2px 8px; border-radius: 999px; font-weight: 700; letter-spacing: 0.03em;">⏳ Queued (#' + (d.queuePosition || 1) + ')</span>' +
+            '<strong>' + escapeHtml(d.filename) + '</strong>' +
+          '</div>' +
+          '<button class="btn-base btn-danger btn-sm" onclick="cancelDl(\'' + escapeHtml(d.key) + '\')">Remove</button>' +
+        '</div>' +
+        '<div class="meta-dl" style="color: #fbbf24; margin-top: 6px;">Waiting for active download slot &bull; ' + (d.totalBytes > 0 ? fmtGb(d.totalBytes) : 'size pending') + '</div>' +
+      '</div>';
+    }
     return '<div class="card">' +
       '<div class="row">' +
         '<div><strong>' + escapeHtml(d.filename) + '</strong></div>' +

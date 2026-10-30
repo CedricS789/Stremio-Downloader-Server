@@ -48,6 +48,18 @@ export class SettingsService {
   get mediaSoftLimitGb(): number {
     return this.number('mediaSoftLimitGb', Number(process.env.MEDIA_SOFT_LIMIT_GB || 100), 1);
   }
+  get maxConcurrentDownloads(): number {
+    return this.number('maxConcurrentDownloads', 2, 1);
+  }
+  get maxDownloadSpeedMBps(): number {
+    return this.number('maxDownloadSpeedMBps', 0, 0);
+  }
+  get autoRescanOnDownload(): boolean {
+    return this.boolean('autoRescanOnDownload', true);
+  }
+  get downloadTimeoutSeconds(): number {
+    return this.number('downloadTimeoutSeconds', 60, 15);
+  }
   get lanBaseUrl(): string {
     return this.get('lanBaseUrl', String(process.env.LAN_BASE_URL || '')).replace(/\/+$/, '');
   }
@@ -361,6 +373,10 @@ export class SettingsService {
       longLivedStreamTokens: this.longLivedStreamTokens,
       adminUsername: this.adminUsername,
       mediaSoftLimitGb: this.mediaSoftLimitGb,
+      maxConcurrentDownloads: this.maxConcurrentDownloads,
+      maxDownloadSpeedMBps: this.maxDownloadSpeedMBps,
+      autoRescanOnDownload: this.autoRescanOnDownload,
+      downloadTimeoutSeconds: this.downloadTimeoutSeconds,
       lanBaseUrl: this.lanBaseUrl,
 
       autoRequestEnabled: this.autoRequestEnabled,

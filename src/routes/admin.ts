@@ -1146,6 +1146,9 @@ export function registerAdminRoutes(
       ['scanIntervalMinutes', 1],
       ['minimumFileSizeMb', 0],
       ['streamTokenExpiryHours', 1],
+      ['maxConcurrentDownloads', 1],
+      ['maxDownloadSpeedMBps', 0],
+      ['downloadTimeoutSeconds', 15],
       ['siloRuntimeFallbackSlowSegmentMs', 1000],
       ['siloRuntimeFallbackSlowSegmentCount', 2],
       ['siloRuntimeFallbackStartupMs', 5000],
@@ -1186,6 +1189,9 @@ export function registerAdminRoutes(
       'minimumFileSizeMb',
       'streamTokenExpiryHours',
       'longLivedStreamTokens',
+      'maxConcurrentDownloads',
+      'maxDownloadSpeedMBps',
+      'downloadTimeoutSeconds',
       'adminUsername'
     ]) {
       if (typeof body[key] === 'string' && body[key]!.trim()) {
@@ -1199,6 +1205,7 @@ export function registerAdminRoutes(
 
     // Boolean settings.
     for (const key of [
+      'autoRescanOnDownload',
       'autoRequestEnabled',
       'radarrEnabled',
       'sonarrEnabled',
