@@ -454,6 +454,108 @@
     box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
   }
 
+  /* Show Grouping Accordion */
+  .show-group {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    margin-bottom: 14px;
+    overflow: hidden;
+    transition: border-color 0.15s ease;
+  }
+  .show-group:hover {
+    border-color: var(--border-hover);
+  }
+  .show-group-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 13px 18px;
+    background: var(--surface-raised);
+    cursor: pointer;
+    user-select: none;
+    gap: 12px;
+    flex-wrap: wrap;
+    border-bottom: 1px solid var(--border);
+    transition: background 0.15s ease;
+  }
+  .show-group-header:hover {
+    background: var(--surface-hover);
+  }
+  .show-group.collapsed .show-group-header {
+    border-bottom: none;
+  }
+  .show-group-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+    min-width: 0;
+  }
+  .show-chevron {
+    font-size: 11px;
+    color: var(--text-muted);
+    transition: transform 0.2s ease;
+    display: inline-block;
+  }
+  .show-group.collapsed .show-chevron {
+    transform: rotate(-90deg);
+  }
+  .show-group.collapsed .show-group-body {
+    display: none;
+  }
+  .show-icon {
+    font-size: 16px;
+    line-height: 1;
+  }
+  .show-title {
+    font-size: 15px;
+    font-weight: 800;
+    color: #ffffff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    letter-spacing: -0.01em;
+  }
+  .show-year {
+    font-size: 12px;
+    color: var(--text-dim);
+    font-weight: 600;
+  }
+  .show-badge {
+    font-size: 11px;
+    font-weight: 750;
+    color: var(--text-muted);
+    background: #050609;
+    border: 1px solid var(--border);
+    padding: 2px 9px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .show-group-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .show-group-body {
+    background: var(--surface);
+  }
+  .show-group-body .file-item {
+    border: none;
+    border-bottom: 1px solid var(--border);
+    border-radius: 0;
+    margin-bottom: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+  .show-group-body .file-item:last-child {
+    border-bottom: none;
+  }
+  .show-group-body .file-item:hover {
+    background: rgba(255, 255, 255, 0.03);
+    transform: none;
+  }
+
   /* File Rows */
   .file-item {
     background: var(--surface);
@@ -1285,26 +1387,24 @@ function deleteSelected() {
   openDeleteModal('batch');
 }
 
-function setFilter(filter) {
-  if (activeFilter === filter && filter.startsWith('show:')) {
-    const title = filter.slice(5);
-    const show = (currentData.shows || []).find(function(s) { return s.title === title; });
-    activeFilter = show && show.type === 'movie' ? 'type:movie' : 'type:series';
+let collapsedShows = new Set();
+function toggleShowGroup(title) {
+  if (collapsedShows.has(title)) {
+    collapsedShows.delete(title);
   } else {
-    activeFilter = filter;
+    collapsedShows.add(title);
   }
+  renderFiles();
+}
+
+function setFilter(filter) {
+  activeFilter = filter;
   selectedIds.clear();
   render();
 }
 
 function clearFilter() {
-  if (activeFilter.startsWith('show:')) {
-    const title = activeFilter.slice(5);
-    const show = (currentData.shows || []).find(function(s) { return s.title === title; });
-    activeFilter = show && show.type === 'movie' ? 'type:movie' : 'type:series';
-  } else {
-    activeFilter = 'type:series';
-  }
+  activeFilter = 'type:series';
   searchQuery = '';
   document.getElementById('search-input').value = '';
   selectedIds.clear();
@@ -1458,7 +1558,6 @@ function renderActive() {
 function renderPills() {
   const container = document.getElementById('pills-container');
   const stats = currentData.stats || {};
-  const shows = currentData.shows || [];
 
   if (!activeFilter || activeFilter === 'all') {
     if ((stats.seriesCount || 0) > 0) activeFilter = 'type:series';
@@ -1466,32 +1565,15 @@ function renderPills() {
     else activeFilter = 'type:series';
   }
 
-  let html = '<div class="pill ' + (activeFilter === 'type:movie' ? 'active' : '') + '" onclick="setFilter(\'type:movie\')">' +
-    '🎬 Movies <span class="count">' + (stats.moviesCount || 0) + '</span></div>' +
-    '<div class="pill ' + (activeFilter === 'type:series' ? 'active' : '') + '" onclick="setFilter(\'type:series\')">' +
-    '📺 Series <span class="count">' + (stats.seriesCount || 0) + '</span></div>';
+  let html = '<div class="pill ' + (activeFilter === 'type:series' ? 'active' : '') + '" onclick="setFilter(\'type:series\')">' +
+    '📺 TV Series <span class="count">' + (stats.seriesCount || 0) + '</span></div>' +
+    '<div class="pill ' + (activeFilter === 'type:movie' ? 'active' : '') + '" onclick="setFilter(\'type:movie\')">' +
+    '🎬 Movies <span class="count">' + (stats.moviesCount || 0) + '</span></div>';
 
-  for (let i = 0; i < shows.length; i++) {
-    const s = shows[i];
-    const isAct = activeFilter === 'show:' + s.title;
-    const icon = s.type === 'movie' ? '🎬' : '📺';
-    html += '<div class="pill ' + (isAct ? 'active' : '') + '" onclick="setFilter(\'show:' + escapeHtml(s.title) + '\')">' +
-      icon + ' ' + escapeHtml(s.title) + ' <span class="count">' + s.fileCount + ' • ' + fmtGb(s.totalBytes) + '</span></div>';
-  }
   container.innerHTML = html;
 
   const banner = document.getElementById('filter-banner');
-  if (activeFilter.startsWith('show:')) {
-    const title = activeFilter.slice(5);
-    const show = shows.find(function(s) { return s.title === title; });
-    const count = show ? show.fileCount : 0;
-    const bytes = show ? show.totalBytes : 0;
-    banner.style.display = 'flex';
-    banner.className = 'active-filter-banner';
-    banner.innerHTML = '<div>Filtered by show: <b>' + escapeHtml(title) + '</b> &bull; ' + count + ' file' + (count === 1 ? '' : 's') + ' (' + fmtGb(bytes) + ')</div>';
-  } else {
-    banner.style.display = 'none';
-  }
+  if (banner) banner.style.display = 'none';
 }
 
 function renderBatchBar() {
@@ -1526,6 +1608,68 @@ function getStremioUrl(f) {
   return 'stremio:///detail/' + encodeURIComponent(f.type || 'series') + '/' + encodeURIComponent(cleanId) + '?autoPlay=true';
 }
 
+function renderFileItem(f, isMobile) {
+  const isChecked = selectedIds.has(f.id);
+  const isMovie = f.type === 'movie';
+  const stremioUrl = getStremioUrl(f);
+  const epLabel = isMovie
+    ? 'Movie'
+    : (f.season ? 'S' + String(f.season).padStart(2, '0') + 'E' + String(f.episode_start).padStart(2, '0') : '');
+  const epBadge = epLabel
+    ? (stremioUrl
+        ? '<a href="' + stremioUrl + '" class="badge ' + (isMovie ? 'badge-movie' : 'badge-ep') + '" style="text-decoration:none;" title="Open in Stremio">' + epLabel + '</a>'
+        : '<span class="badge ' + (isMovie ? 'badge-movie' : 'badge-ep') + '">' + epLabel + '</span>')
+    : '';
+  const filename = f.relative_path ? f.relative_path.split('/').pop() : 'Unknown file';
+  const quality = f.quality ? f.quality + 'p' : '';
+  const dateStr = formatDate(f.added_at);
+
+  const metaContent = '<span class="file-play-icon">▶</span> ' + escapeHtml(filename) + (quality ? ' &bull; ' + quality : '') + (dateStr ? ' &bull; ' + dateStr : '');
+  const metaHtml = stremioUrl
+    ? '<a href="' + stremioUrl + '" class="file-meta-link" title="Open in Stremio: ' + escapeHtml(filename) + '">' + metaContent + '</a>'
+    : '<div class="file-meta" title="' + escapeHtml(f.relative_path) + '">' + escapeHtml(filename) + (quality ? ' &bull; ' + quality : '') + (dateStr ? ' &bull; ' + dateStr : '') + '</div>';
+
+  const openBtn = stremioUrl
+    ? '<a href="' + stremioUrl + '" class="btn-stremio" title="Open directly in Stremio">▶ Stremio</a>'
+    : '';
+
+  if (isMobile) {
+    return '<div class="file-item">' +
+      '<div class="file-item-header">' +
+        '<input type="checkbox" class="file-check" ' + (isChecked ? 'checked' : '') + ' onchange="toggleSelect(\'' + escapeHtml(f.id) + '\')">' +
+        '<div style="flex:1; min-width:0; display:flex; align-items:center; gap:8px;">' +
+          '<span class="file-title" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + escapeHtml(filename) + '</span>' +
+          epBadge +
+        '</div>' +
+      '</div>' +
+      '<div style="width:100%; overflow:hidden;">' + metaHtml + '</div>' +
+      '<div class="file-item-footer">' +
+        '<div class="file-size-badge">' + fmtGb(f.size) + '</div>' +
+        '<div class="file-actions">' +
+          openBtn +
+          '<button class="btn-base btn-danger btn-sm" onclick="deleteFile(\'' + escapeHtml(f.id) + '\', \'' + escapeHtml(filename) + '\', ' + (Number(f.size) || 0) + ')">🗑️ Delete</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }
+
+  return '<div class="file-item">' +
+    '<input type="checkbox" class="file-check" ' + (isChecked ? 'checked' : '') + ' onchange="toggleSelect(\'' + escapeHtml(f.id) + '\')">' +
+    '<div class="file-main">' +
+      '<div class="file-title-row">' +
+        '<span class="file-title">' + escapeHtml(filename) + '</span>' +
+        epBadge +
+      '</div>' +
+      metaHtml +
+    '</div>' +
+    '<div class="file-size-badge">' + fmtGb(f.size) + '</div>' +
+    '<div class="file-actions">' +
+      openBtn +
+      '<button class="btn-base btn-danger btn-sm" onclick="deleteFile(\'' + escapeHtml(f.id) + '\', \'' + escapeHtml(filename) + '\', ' + (Number(f.size) || 0) + ')">🗑️ Delete</button>' +
+    '</div>' +
+  '</div>';
+}
+
 function renderFiles() {
   const container = document.getElementById('files-list');
   const filtered = getFilteredFiles();
@@ -1537,67 +1681,53 @@ function renderFiles() {
 
   const isMobile = window.innerWidth <= 640;
 
-  container.innerHTML = filtered.map(function(f) {
-    const isChecked = selectedIds.has(f.id);
-    const isMovie = f.type === 'movie';
-    const stremioUrl = getStremioUrl(f);
-    const epLabel = isMovie
-      ? 'Movie'
-      : (f.season ? 'S' + String(f.season).padStart(2, '0') + 'E' + String(f.episode_start).padStart(2, '0') : '');
-    const epBadge = epLabel
-      ? (stremioUrl
-          ? '<a href="' + stremioUrl + '" class="badge ' + (isMovie ? 'badge-movie' : 'badge-ep') + '" style="text-decoration:none;" title="Open in Stremio">' + epLabel + '</a>'
-          : '<span class="badge ' + (isMovie ? 'badge-movie' : 'badge-ep') + '">' + epLabel + '</span>')
-      : '';
-    const filename = f.relative_path ? f.relative_path.split('/').pop() : 'Unknown file';
-    const quality = f.quality ? f.quality + 'p' : '';
-    const dateStr = formatDate(f.added_at);
-
-    const metaContent = '<span class="file-play-icon">▶</span> ' + escapeHtml(filename) + (quality ? ' &bull; ' + quality : '') + (dateStr ? ' &bull; ' + dateStr : '');
-    const metaHtml = stremioUrl
-      ? '<a href="' + stremioUrl + '" class="file-meta-link" title="Open in Stremio: ' + escapeHtml(filename) + '">' + metaContent + '</a>'
-      : '<div class="file-meta" title="' + escapeHtml(f.relative_path) + '">' + escapeHtml(filename) + (quality ? ' &bull; ' + quality : '') + (dateStr ? ' &bull; ' + dateStr : '') + '</div>';
-
-    const openBtn = stremioUrl
-      ? '<a href="' + stremioUrl + '" class="btn-stremio" title="Open directly in Stremio">▶ Stremio</a>'
-      : '';
-
-    // Mobile-adaptive card structure
-    if (isMobile) {
-      return '<div class="file-item">' +
-        '<div class="file-item-header">' +
-          '<input type="checkbox" class="file-check" ' + (isChecked ? 'checked' : '') + ' onchange="toggleSelect(\'' + escapeHtml(f.id) + '\')">' +
-          '<div style="flex:1; min-width:0; display:flex; align-items:center; gap:8px;">' +
-            '<span class="file-title" onclick="setFilter(\'show:' + escapeHtml(f.title || '') + '\')" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + escapeHtml(f.title || f.relative_path) + '</span>' +
-            epBadge +
-          '</div>' +
-        '</div>' +
-        '<div style="width:100%; overflow:hidden;">' + metaHtml + '</div>' +
-        '<div class="file-item-footer">' +
-          '<div class="file-size-badge">' + fmtGb(f.size) + '</div>' +
-          '<div class="file-actions">' +
-            openBtn +
-            '<button class="btn-base btn-danger btn-sm" onclick="deleteFile(\'' + escapeHtml(f.id) + '\', \'' + escapeHtml(filename) + '\', ' + (Number(f.size) || 0) + ')">🗑️ Delete</button>' +
-          '</div>' +
-        '</div>' +
-      '</div>';
+  if (activeFilter === 'type:series') {
+    const groupsMap = new Map();
+    for (let i = 0; i < filtered.length; i++) {
+      const f = filtered[i];
+      const showTitle = f.title || (f.relative_path ? f.relative_path.split('/')[0] : 'Unknown Show');
+      if (!groupsMap.has(showTitle)) {
+        groupsMap.set(showTitle, {
+          title: showTitle,
+          year: f.year || null,
+          files: [],
+          totalBytes: 0
+        });
+      }
+      const g = groupsMap.get(showTitle);
+      g.files.push(f);
+      g.totalBytes += (Number(f.size) || 0);
     }
 
-    return '<div class="file-item">' +
-      '<input type="checkbox" class="file-check" ' + (isChecked ? 'checked' : '') + ' onchange="toggleSelect(\'' + escapeHtml(f.id) + '\')">' +
-      '<div class="file-main">' +
-        '<div class="file-title-row">' +
-          '<span class="file-title" onclick="setFilter(\'show:' + escapeHtml(f.title || '') + '\')" title="Filter by this show">' + escapeHtml(f.title || f.relative_path) + '</span>' +
-          epBadge +
+    let html = '';
+    groupsMap.forEach(function(group) {
+      const isCollapsed = collapsedShows.has(group.title);
+      html += '<div class="show-group ' + (isCollapsed ? 'collapsed' : '') + '">' +
+        '<div class="show-group-header" onclick="toggleShowGroup(\'' + escapeHtml(group.title) + '\')">' +
+          '<div class="show-group-left">' +
+            '<span class="show-chevron">▼</span>' +
+            '<span class="show-icon">📺</span>' +
+            '<span class="show-title">' + escapeHtml(group.title) + '</span>' +
+            (group.year ? '<span class="show-year">(' + group.year + ')</span>' : '') +
+            '<span class="show-badge">' + group.files.length + ' ep' + (group.files.length === 1 ? '' : 's') + ' &bull; ' + fmtGb(group.totalBytes) + '</span>' +
+          '</div>' +
+          '<div class="show-group-actions" onclick="event.stopPropagation()">' +
+            '<button class="btn-base btn-danger btn-sm" onclick="deleteShow(\'' + escapeHtml(group.title) + '\', ' + group.files.length + ', ' + group.totalBytes + ')">🗑️ Delete Show</button>' +
+          '</div>' +
         '</div>' +
-        metaHtml +
-      '</div>' +
-      '<div class="file-size-badge">' + fmtGb(f.size) + '</div>' +
-      '<div class="file-actions">' +
-        openBtn +
-        '<button class="btn-base btn-danger btn-sm" onclick="deleteFile(\'' + escapeHtml(f.id) + '\', \'' + escapeHtml(filename) + '\', ' + (Number(f.size) || 0) + ')">🗑️ Delete</button>' +
-      '</div>' +
-    '</div>';
+        '<div class="show-group-body">' +
+          group.files.map(function(f) { return renderFileItem(f, isMobile); }).join('') +
+        '</div>' +
+      '</div>';
+    });
+
+    container.innerHTML = html;
+    return;
+  }
+
+  // Movies view
+  container.innerHTML = filtered.map(function(f) {
+    return renderFileItem(f, isMobile);
   }).join('');
 }
 
