@@ -17,14 +17,12 @@ services:
     restart: unless-stopped
     init: true
     ports:
-      - "192.168.1.50:60500:60500"
-      - "100.x.y.z:60500:60500"
-      - "127.0.0.1:60500:60500"
+      - "${PORT_BINDING:-60500}:60500"
     environment:
       HOST: "0.0.0.0"
       PORT: "60500"
-      BASE_URL: "${BASE_URL:-https://dock.yourdomain.com}"
-      LAN_BASE_URL: "${LAN_BASE_URL:-http://192.168.1.50:60500}"
+      BASE_URL: "${BASE_URL:-http://localhost:60500}"
+      LAN_BASE_URL: "${LAN_BASE_URL:-}"
       ADDON_NAME: "${ADDON_NAME:-Stremio Downloader Server}"
       ADMIN_USERNAME: admin
       ADMIN_PASSWORD: "${NUVI_ADMIN_PASSWORD:?Run scripts/Initialize.ps1 first}"
@@ -45,19 +43,7 @@ services:
       - nuvi_config:/app/data
       - "${MEDIA_ROOT:?Run scripts/Initialize.ps1 first}/media/movies:/media/movies"
       - "${MEDIA_ROOT:?Run scripts/Initialize.ps1 first}/media/tv:/media/tv"
-    networks:
-      default:
-      app-edge:
-        aliases:
-          - dock-origin
-          - stremio-downloader-server
-          - my-media-dock
     logging: *logging
 
 volumes:
   nuvi_config: {}
-
-networks:
-  app-edge:
-    external: true
-    name: app-edge

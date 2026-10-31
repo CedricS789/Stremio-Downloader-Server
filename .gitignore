@@ -3,6 +3,10 @@ dist/
 out/
 data/
 .env
+compose.override.yaml
+compose.override.yml
+docker-compose.override.yml
+docker-compose.override.yaml
 *.log
 *.db
 *.db-shm

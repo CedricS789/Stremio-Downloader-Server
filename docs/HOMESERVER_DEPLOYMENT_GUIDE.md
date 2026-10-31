@@ -1,23 +1,23 @@
 # Home Server Deployment & Multi-Device Stremio Architecture Guide
 
-> **Target Machine:** `asus_server` (Ubuntu Linux x86_64)  
-> **Repository:** [CedricS789/My-Media-Dock](https://github.com/CedricS789/My-Media-Dock)  
+> **Target Machine:** Dedicated Linux Home Server (Ubuntu / Debian / Arch / Raspberry Pi, x86_64 or ARM64)  
+> **Repository:** [CedricS789/Stremio-Downloader-Server](https://github.com/CedricS789/Stremio-Downloader-Server)  
 > **Target Clients:** Windows Desktop (Native App), iPhone (Stremio Web PWA), iPad (Stremio Web PWA), Android / Smart TVs  
-> **Status:** **Deployed & Operational** (Healthy container running on `asus_server`)  
+> **Status:** Production-Ready Self-Hosted Media Engine
 
 ---
 
 ## 1. Executive Summary & Architecture Vision
 
-**My-Media-Dock** is now deployed and running 24/7 on your dedicated Home Server (`asus_server`).
+**Stremio-Downloader-Server** runs 24/7 on your dedicated home server or mini-PC.
 
 ### The "100% Pure Stremio" Philosophy
 Unlike traditional setups that require heavy media servers like Plex or Jellyfin:
-* **No Plex or Jellyfin required:** My-Media-Dock operates directly as a native Stremio streaming and catalog addon server.
+* **No Plex or Jellyfin required:** Stremio-Downloader-Server operates directly as a native Stremio streaming and catalog addon server.
 * **Unified Single Interface:** Media discovery, debrid stream selection, 1-click downloading, and playback all happen **100% inside Stremio** across all your devices.
-* **Zero Server Transcoding:** Video playback is delivered via **HTTP Direct Play**. Decoding is offloaded to client hardware (iPhone A-series, iPad M/A-series, PC GPU), eliminating CPU strain on the server.
+* **Zero Server Transcoding:** Video playback is delivered via **HTTP Direct Play**. Decoding is offloaded to client hardware (iPhone, iPad, PC GPU), eliminating CPU strain on the server.
 * **Dual-Stream Playback Engine:** When a file is downloaded, Stremio automatically provides two streams:
-  1. `💾 Local (LAN Direct)` (`http://192.168.1.50:60500/media/...`): 100% Gigabit LAN, 0 Internet data, instant scrubbing.
+  1. `💾 Local (LAN Direct)` (`http://<SERVER_LAN_IP>:60500/media/...`): 100% Gigabit LAN, 0 Internet data, instant scrubbing.
   2. `💾 Local (Remote / HTTPS)` (`https://dock.yourdomain.com/media/...`): For watching when away from home without needing a VPN.
 
 ```mermaid
@@ -28,11 +28,11 @@ flowchart TD
         iPad["iPad<br>(Stremio Web + Outplayer)"]
     end
 
-    subgraph HomeServer["asus_server (24/7 Always-On)"]
-        MMD["My-Media-Dock (Docker)<br>Port 60500"]
-        CFTunnel["Cloudflare Tunnel<br>(asus-cloudflare-cloudflared-1)"]
+    subgraph HomeServer["Home Server (24/7 Always-On)"]
+        MMD["Stremio-Downloader-Server (Docker)<br>Port 60500"]
+        CFTunnel["Cloudflare Tunnel<br>(cloudflared)"]
         Cron["Storage Monitor (Cron)<br>100 GB Soft Limit"]
-        Disk[("Crucial SSD / Storage<br>/media/movies & /media/tv")]
+        Disk[("Storage SSD / HDD<br>/media/movies & /media/tv")]
     end
 
     Clients -->|1. Find show & click 'Download'| MMD
@@ -44,32 +44,24 @@ flowchart TD
 
 ---
 
-## 2. Live Server Deployment Details
+## 2. Server Deployment Details
 
-The application is deployed on `asus_server` with the following active parameters:
+The application is deployed with the following parameters:
 
 * **Host Directory:** `~/stremio-dock`
   * Application: `~/stremio-dock/app`
   * Media Movies: `~/stremio-dock/media/movies`
   * Media TV: `~/stremio-dock/media/tv`
   * Storage Monitor: `~/stremio-dock/monitor`
-* **Docker Container:** `my-media-dock`
-  * Image: `my-media-dock:latest`
-  * Bound Ports:
-    * `192.168.1.50:60500` (Home LAN Gigabit Ethernet)
-    * `100.x.y.z:60500` (Tailscale mesh)
-    * `127.0.0.1:60500` (Local loopback)
-  * Docker Network: Attached to `app-edge` with alias `dock-origin`
-* **Addon Credentials & Token:**
-  * Admin Username: `admin`
-  * Addon Token: `<YOUR_ACCESS_TOKEN>`
-* **Health & Diagnostics:**
-  * Health Endpoint: `http://192.168.1.50:60500/health`
-  * Web Downloads & Storage Dashboard: `http://192.168.1.50:60500/downloads`
+* **Docker Container:** `stremio-downloader-server`
+  * Image: `stremio-downloader-server:latest`
+  * Default Port: `60500`
+  * Health Endpoint: `http://localhost:60500/health`
+  * Web Downloads & Storage Dashboard: `http://localhost:60500/downloads`
 
 ---
 
-## 3. Storage Soft Limit (100 GB)
+## 3. Storage Soft Limit (100 GB Default)
 
 To safeguard system stability while keeping ample room for server operations:
 * **Soft Limit:** **100 GB** decimal (`100,000,000,000 bytes`).
@@ -78,42 +70,41 @@ To safeguard system stability while keeping ample room for server operations:
   ```bash
   */15 * * * * ~/stremio-dock/monitor/check-media-space.sh >> ~/stremio-dock/monitor/cron.log 2>&1
   ```
-* **Behavior:** Non-destructive soft limit. It logs warnings to `~/stremio-dock/monitor/storage-warning.log` and the system journal (`journalctl -t my-media-dock-storage`) so you can delete watched seasons before reaching disk capacity.
+* **Behavior:** Non-destructive soft limit. It logs warnings to `~/stremio-dock/monitor/storage-warning.log` so you can delete watched seasons before reaching disk capacity.
 
 ---
 
-## 4. Cloudflare Zero Trust Setup (1-Minute Hostname)
+## 4. Cloudflare Zero Trust Setup (HTTPS Tunnel)
 
 Because Stremio's UI runs inside a secure web context (`https://app.strem.io` and `https://web.stremio.com`), installing the addon across phones, tablets, and desktop without mixed-content errors requires an HTTPS manifest URL.
 
-Your server already has the Cloudflare Tunnel container `asus-cloudflare-cloudflared-1` running on the `app-edge` network.
-
-### Steps to activate `dock.yourdomain.com`:
+### Steps to activate your custom domain (e.g. `dock.yourdomain.com`):
 1. Log into your [Cloudflare Zero Trust Dashboard](https://one.dash.cloudflare.com/).
 2. Navigate to **Networks** → **Tunnels**.
-3. Select your active tunnel (`asus_server`) and click **Configure**.
+3. Select your active tunnel and click **Configure**.
 4. In the **Public Hostname** tab, click **Add a public hostname**:
-   * **Subdomain:** `dock`
+   * **Subdomain:** `dock` (or your choice)
    * **Domain:** `yourdomain.com`
    * **Service Type:** `HTTP`
-   * **URL:** `dock-origin:60500` (or `http://dock-origin:60500`)
+   * **URL:** `stremio-downloader-server:60500` (or `localhost:60500`)
 5. Click **Save hostname**.
 
 ---
 
 ## 5. Adding the Addon to Stremio
 
-Once the hostname is added:
+Once your server is running and optional HTTPS is configured:
 
 ### Stremio Manifest URL:
 ```text
 https://dock.yourdomain.com/addon/<YOUR_ACCESS_TOKEN>/manifest.json
 ```
+*(Copy your personalized manifest URL from the Admin Console at `/admin` under Settings)*
 
 ### Installation Steps:
 1. Open Stremio (on PC, Mac, iPhone, iPad, or Android).
 2. Go to **Addons** (puzzle piece icon).
-3. Paste the manifest URL into the search bar.
+3. Paste your manifest URL into the search bar.
 4. Click **Install**.
 5. Once installed, Stremio automatically syncs this addon to all devices logged into your Stremio account!
 
@@ -124,18 +115,18 @@ https://dock.yourdomain.com/addon/<YOUR_ACCESS_TOKEN>/manifest.json
 ### At Home on Local Wi-Fi (Gigabit LAN • 0 Internet Data):
 * When you open any downloaded movie or series in Stremio, select the stream marked:
   **`💾 Local (LAN Direct)`** (`⚡ Gigabit LAN • No Internet`).
-* Playback streams directly from `asus_server` (`192.168.1.50`) over your home Wi-Fi router.
+* Playback streams directly from your home server over your local Wi-Fi router.
 * No data touches the internet; no VPN is needed.
 
 ### Away from Home (4G/5G Cellular / Traveling):
 * In Stremio, select:
   **`💾 Local (Remote / HTTPS)`**.
-* Playback streams securely through `dock.yourdomain.com` with zero VPN connection required on your phone.
+* Playback streams securely through your HTTPS tunnel with zero VPN connection required on your phone.
 
 ### Mobile Device Tips (iPhone & iPad):
 1. **PWA Installation:** Open `https://web.stremio.com` in Safari, tap **Share** → **Add to Home Screen**.
 2. **External Player:** Go to **Stremio Web Settings** → **Streaming** and select **Play in external player** → **Outplayer** or **VLC** (both free on the App Store).
-3. **1-Click Downloading:** Clicking **"⬇️ Download Season"** sends the download task to `asus_server`. The server downloads it silently without using your phone's battery or cellular storage.
+3. **1-Click Downloading:** Clicking **"⬇️ Download Season"** sends the download task to your server. The server downloads it silently without using your phone's battery or cellular storage.
 
 ---
 
@@ -143,25 +134,25 @@ https://dock.yourdomain.com/addon/<YOUR_ACCESS_TOKEN>/manifest.json
 
 ### Check Container Status
 ```bash
-ssh asus_server "docker ps --filter 'name=my-media-dock'"
+docker ps --filter "name=stremio-downloader-server"
 ```
 
 ### View Live Logs
 ```bash
-ssh asus_server "docker logs -f my-media-dock"
+docker logs -f stremio-downloader-server
 ```
 
 ### Restart Container
 ```bash
-ssh asus_server "cd ~/stremio-dock/app && docker compose restart"
+cd ~/stremio-dock/app && docker compose restart
 ```
 
 ### Check Storage Usage & Monitor Status
 ```bash
-ssh asus_server "du -sh ~/stremio-dock/media/*; cat ~/stremio-dock/monitor/last-warning-level"
+du -sh ~/stremio-dock/media/*; cat ~/stremio-dock/monitor/last-warning-level
 ```
 
 ### Update to Latest Code from GitHub
 ```bash
-ssh asus_server "cd ~/stremio-dock/app && docker compose up -d --build"
+cd ~/stremio-dock/app && docker compose up -d --build
 ```

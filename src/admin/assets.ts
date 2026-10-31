@@ -69,7 +69,7 @@ export function adminHtml(csrf: string): string {
 </div>
 <div class="field full">
   <label for="baseUrl">Public base URL</label>
-  <input id="baseUrl" class="input" name="baseUrl" type="url" required placeholder="https://dock.yourdomain.com">
+  <input id="baseUrl" class="input" name="baseUrl" type="url" required placeholder="https://media.yourdomain.com">
   <p class="help">Public HTTPS URL configured through your Cloudflare Tunnel.</p>
 </div>
 <div class="field full">
