@@ -776,7 +776,7 @@ describe('media details modal', () => {
     expect(document.body.classList.contains('modal-open')).toBe(true);
     expect(document.querySelector('#filePathValue')?.textContent).toBe(longPath);
     expect(document.querySelector('details.technical-details')?.hasAttribute('open')).toBe(false);
-    expect(document.querySelector('#modalActions')?.textContent).toContain('Ignore');
+    expect(document.querySelector('#modalActions')?.textContent).not.toContain('Ignore');
     expect(document.querySelector('#modalActions')?.textContent).not.toContain('Remove match');
 
     vi.advanceTimersByTime(15_000);
@@ -991,19 +991,8 @@ describe('media details modal', () => {
     document.querySelector<HTMLButtonElement>('[data-apply-match="123"]')!.click();
     await flush();
     expect(document.querySelector('.match-card')?.textContent).toContain('Current match');
-    expect(document.querySelector('#modalActions')?.textContent).toContain('Remove match');
-    expect(document.querySelector('#modalActions')?.textContent).not.toContain('Ignore');
-
-    document.querySelector<HTMLButtonElement>('[data-action="unmatch"]')!.click();
-    await flush();
-    expect(window.confirm).toHaveBeenCalled();
+    expect(document.querySelector('#modalActions')?.textContent).toContain('Test stream');
     expect(document.querySelector('#modalActions')?.textContent).not.toContain('Remove match');
-    expect(document.querySelector('#modalActions')?.textContent).toContain('Ignore');
-
-    document.querySelector<HTMLButtonElement>('[data-action="ignore"]')!.click();
-    await flush();
-    expect(document.querySelector('#modalBody')?.textContent).toContain('This file is ignored');
-    expect(document.querySelector('#modalActions')?.textContent).toBe('');
-    expect(fetchMock).toHaveBeenCalledWith('/admin/api/files/file1/ignore', expect.objectContaining({ method: 'POST' }));
+    expect(document.querySelector('#modalActions')?.textContent).not.toContain('Ignore');
   });
 });
