@@ -1596,30 +1596,11 @@ export function registerStremioRoutes(app, database, settings, config, requester
             const sizeStr = formatGb(file.size);
             const detailsLine = [releaseType, sizeStr].filter(Boolean).join(' • ');
 
-            let playTag = 'Direct Play';
-            let epCode = '';
-            if (requestedEpisode?.season !== undefined && requestedEpisode?.episode !== undefined) {
-                const ss = String(requestedEpisode.season).padStart(2, '0');
-                const ee = String(requestedEpisode.episode).padStart(2, '0');
-                epCode = `S${ss}E${ee}`;
-                playTag = `${epCode} • Direct Play`;
-            } else if (file.season !== undefined && file.episode_start !== undefined) {
-                const ss = String(file.season).padStart(2, '0');
-                const ee = String(file.episode_start).padStart(2, '0');
-                epCode = `S${ss}E${ee}`;
-                playTag = `${epCode} • Direct Play`;
-            }
-
-            const showTitle = file.item_display_title || file.item_title || '';
-            const cleanFilename = type === 'series' && showTitle && epCode
-                ? `${showTitle} ${epCode}.mkv`
-                : (showTitle ? `${showTitle}${file.item_year ? ` (${file.item_year})` : ''}.mkv` : path.basename(file.relative_path));
-
             const lanBase = (settings.lanBaseUrl || String(process.env.LAN_BASE_URL || '')).trim().replace(/\/+$/, '');
             const diskFilename = path.basename(file.relative_path);
             const wrappedFileLines = wrapFilename(diskFilename, 25);
             const localDesc = [
-                `🏠 LAN Direct • ${res}`,
+                `🏠 LAN • ${res}`,
                 detailsLine,
                 ...wrappedFileLines
             ].filter(Boolean).join('\n');
