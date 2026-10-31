@@ -7,7 +7,7 @@ x-logging: &logging
     max-file: "3"
 
 services:
-  nuviflow:
+  stremio-downloader-server:
     build:
       context: .
       dockerfile: Dockerfile
