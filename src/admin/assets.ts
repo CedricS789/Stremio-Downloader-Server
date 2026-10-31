@@ -91,13 +91,13 @@ export function adminHtml(csrf: string): string {
 <!-- Panel: Downloads Engine (NEW!) -->
 <section class="settings-panel" id="settings-panel-downloads" role="tabpanel" aria-labelledby="settings-tab-downloads" data-settings-panel="downloads" hidden>
 <div class="settings-section">
-  <h3>Download Concurrency & Queue</h3>
-  <p>Control simultaneous file downloads to prevent server overload and disk contention.</p>
+  <h3>Parallel Downloads & Queue</h3>
+  <p>Control simultaneous file downloads across movies and series episodes.</p>
 </div>
 <div class="field">
-  <label for="maxConcurrentDownloads">Max Concurrent Downloads</label>
+  <label for="maxConcurrentDownloads">Parallel Downloads</label>
   <input id="maxConcurrentDownloads" class="input" name="maxConcurrentDownloads" type="number" min="1" max="10" step="1" required placeholder="2">
-  <p class="help">Maximum active file downloads running at once. Additional downloads wait in queue and begin automatically as slots open.</p>
+  <p class="help">Number of files to download simultaneously in parallel. When downloading seasons or multiple items, this many files download at the same time.</p>
 </div>
 <div class="field">
   <label for="downloadTimeoutSeconds">Download Stall Timeout (seconds)</label>

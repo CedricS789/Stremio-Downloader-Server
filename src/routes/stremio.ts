@@ -963,20 +963,29 @@ export function registerStremioRoutes(app, database, settings, config, requester
         if (!checkDownloadsAuth(request, reply)) {
             return reply.code(401).send({ error: 'Authentication required' });
         }
-        const items = [...activeDownloads.values()].map((d) => {
-            const elapsedSec = Math.max(1, (Date.now() - (d.startedAt || Date.now())) / 1000);
-            const speedBps = d.status === 'queued' ? 0 : d.downloadedBytes / elapsedSec;
-            return {
+        const items = [...activeDownloads.values()]
+            .filter((d) => !d.key.startsWith('season:'))
+            .map((d) => {
+                const elapsedSec = Math.max(1, (Date.now() - (d.startedAt || Date.now())) / 1000);
+                const speedBps = d.status === 'queued' ? 0 : d.downloadedBytes / elapsedSec;
+                return {
+                    key: d.key,
+                    filename: d.filename,
+                    downloadedBytes: d.downloadedBytes,
+                    totalBytes: d.totalBytes,
+                    speedMbps: Number((speedBps / (1024 ** 2)).toFixed(2)),
+                    percent: d.totalBytes > 0 ? Math.min(99, Math.round((d.downloadedBytes / d.totalBytes) * 100)) : 0,
+                    status: d.status || 'downloading',
+                    queuePosition: d.queuePosition || 0
+                };
+            });
+
+        const activeSeasons = [...activeDownloads.values()]
+            .filter((d) => d.key.startsWith('season:'))
+            .map((d) => ({
                 key: d.key,
-                filename: d.filename,
-                downloadedBytes: d.downloadedBytes,
-                totalBytes: d.totalBytes,
-                speedMbps: Number((speedBps / (1024 ** 2)).toFixed(2)),
-                percent: d.totalBytes > 0 ? Math.min(99, Math.round((d.downloadedBytes / d.totalBytes) * 100)) : 0,
-                status: d.status || 'downloading',
-                queuePosition: d.queuePosition || 0
-            };
-        });
+                title: d.filename
+            }));
 
         const localFiles = database.sqlite.prepare(`
             SELECT 
@@ -1031,6 +1040,7 @@ export function registerStremioRoutes(app, database, settings, config, requester
 
         return reply.header('Cache-Control', 'no-store').send({
             activeDownloads: items.length,
+            activeSeasons,
             lastDownloadTriggeredAt,
             promptUrl: promptUrl || `${settings.baseUrl}/downloads`,
             items,
@@ -1242,9 +1252,16 @@ export function registerStremioRoutes(app, database, settings, config, requester
                             : Array.from({ length: 10 }, (_, idx) => idx + 1);
                         const epNumbers = allSeasonEps.filter(ep => selectedEpList ? selectedEpList.includes(ep) : true);
 
+                        const remainingEpisodes = epNumbers.filter(epNum =>
+                            !isEpisodeAlreadyPresent(parsed.itemId, showTitle, parsed.season, epNum) &&
+                            !activeDownloads.has(`episode:${parsed.itemId}:${parsed.season}:${epNum}`)
+                        );
+
+                        const totalCount = remainingEpisodes.length;
+                        let completedCount = 0;
                         const seasonState = {
                             key: seasonKey,
-                            filename: `${showTitle} Season ${parsed.season} (0/${epNumbers.length})`,
+                            filename: `${showTitle} Season ${parsed.season} (0/${totalCount})`,
                             downloadedBytes: 0,
                             totalBytes: 0,
                             startedAt: Date.now(),
@@ -1253,35 +1270,26 @@ export function registerStremioRoutes(app, database, settings, config, requester
                         };
                         activeDownloads.set(seasonKey, seasonState);
 
-                        for (let i = 0; i < epNumbers.length; i += 1) {
-                            if (seasonState.cancelled || !activeDownloads.has(seasonKey)) break;
-                            const epNum = epNumbers[i];
-                            if (isEpisodeAlreadyPresent(parsed.itemId, showTitle, parsed.season, epNum)) {
-                                app.log.info({ itemId: parsed.itemId, season: parsed.season, episode: epNum }, 'Season download: episode already exists, skipping');
-                                continue;
-                            }
-                            const epFullId = `${parsed.itemId}:${parsed.season}:${epNum}`;
-                            if (activeDownloads.has(`episode:${epFullId}`)) {
-                                continue;
-                            }
+                        const downloadEpisode = async (epNum) => {
+                            if (seasonState.cancelled || !activeDownloads.has(seasonKey)) return;
 
+                            const epFullId = `${parsed.itemId}:${parsed.season}:${epNum}`;
                             const spaceCheck = verifyStorageAvailable(size);
                             if (!spaceCheck.ok) {
-                                app.log.warn({ seasonKey, epNum, reason: spaceCheck.reason }, 'Stopping season download: storage limit reached');
-                                seasonState.filename = `Stopped: Storage limit reached (${i}/${epNumbers.length})`;
-                                seasonState.status = 'error';
-                                break;
+                                app.log.warn({ seasonKey, epNum, reason: spaceCheck.reason }, 'Stopping season episode: storage limit reached');
+                                return;
                             }
                             const ss = String(parsed.season).padStart(2, '0');
                             const ee = String(epNum).padStart(2, '0');
                             const destDir = path.join('/media/tv', showTitle, `Season ${parsed.season}`);
-                            seasonState.filename = `S${ss}E${ee} (${i + 1}/${epNumbers.length})`;
 
                             if (epNum === parsed.episode && url) {
                                 const ext = path.extname(givenFilename) || '.mkv';
                                 const filename = sanitizePathSegment(givenFilename || `${showTitle} - S${ss}E${ee} - ${resolution}${ext}`, `${showTitle} - S${ss}E${ee}${ext}`);
                                 await downloadFileToDisk(`episode:${epFullId}`, url, destDir, filename, size, triggerRescan, verifyStorageAvailable);
-                                continue;
+                                completedCount++;
+                                seasonState.filename = `${showTitle} Season ${parsed.season} (${completedCount}/${totalCount})`;
+                                return;
                             }
 
                             let targetStream = null;
@@ -1296,7 +1304,7 @@ export function registerStremioRoutes(app, database, settings, config, requester
                                         const validStreams = (epData?.streams || [])
                                             .filter(s => s && s.url)
                                             .map(parseAioStream);
-                                        
+
                                         if (group) {
                                             targetStream = validStreams.find(s => s.group && s.group.toLowerCase() === group.toLowerCase());
                                         }
@@ -1313,16 +1321,35 @@ export function registerStremioRoutes(app, database, settings, config, requester
                                 } catch { /* ignore fetch error for individual ep */ }
                             }
 
-                            if (!targetStream) continue;
+                            if (!targetStream) return;
+                            if (seasonState.cancelled || !activeDownloads.has(seasonKey)) return;
 
                             const ext = path.extname(targetStream.filename) || '.mkv';
                             const filename = sanitizePathSegment(targetStream.filename || `${showTitle} - S${ss}E${ee} - ${resolution}${ext}`, `${showTitle} - S${ss}E${ee}${ext}`);
                             await downloadFileToDisk(`episode:${epFullId}`, targetStream.url, destDir, filename, targetStream.videoSize, triggerRescan, verifyStorageAvailable);
-                        }
+                            completedCount++;
+                            seasonState.filename = `${showTitle} Season ${parsed.season} (${completedCount}/${totalCount})`;
+                        };
+
+                        const concurrency = Math.max(1, sharedSettings ? sharedSettings.maxConcurrentDownloads : 2);
+                        const workerCount = Math.min(concurrency, remainingEpisodes.length);
+                        let nextIdx = 0;
+
+                        const worker = async () => {
+                            while (nextIdx < remainingEpisodes.length) {
+                                if (seasonState.cancelled || !activeDownloads.has(seasonKey)) break;
+                                const epNum = remainingEpisodes[nextIdx++];
+                                await downloadEpisode(epNum);
+                            }
+                        };
+
+                        const workers = Array.from({ length: workerCount }, () => worker());
+                        await Promise.all(workers);
                     } catch (err) {
                         app.log.warn({ err, id }, 'Direct season download from selection failed');
                     } finally {
                         activeDownloads.delete(seasonKey);
+                    }
                     }
                 })();
             }
@@ -2012,9 +2039,15 @@ export function registerStremioRoutes(app, database, settings, config, requester
                             const epNumbers = seasonVideos.length > 0
                                 ? seasonVideos.map((v) => Number(v.episode))
                                 : Array.from({ length: 10 }, (_, idx) => idx + 1);
+                            const remainingEpisodes = epNumbers.filter(epNum =>
+                                !isEpisodeAlreadyPresent(parsed.itemId, showTitle, parsed.season, epNum) &&
+                                !activeDownloads.has(`episode:${parsed.itemId}:${parsed.season}:${epNum}`)
+                            );
+                            const totalCount = remainingEpisodes.length;
+                            let completedCount = 0;
                             const seasonState = {
                                 key: seasonKey,
-                                filename: `${showTitle} Season ${parsed.season} (0/${epNumbers.length})`,
+                                filename: `${showTitle} Season ${parsed.season} (0/${totalCount})`,
                                 downloadedBytes: 0,
                                 totalBytes: 0,
                                 startedAt: Date.now(),
@@ -2022,28 +2055,40 @@ export function registerStremioRoutes(app, database, settings, config, requester
                                 cancelled: false
                             };
                             activeDownloads.set(seasonKey, seasonState);
-                            for (let i = 0; i < epNumbers.length; i += 1) {
-                                if (seasonState.cancelled || !activeDownloads.has(seasonKey))
-                                    break;
-                                const epNum = epNumbers[i];
-                                if (isEpisodeAlreadyPresent(parsed.itemId, showTitle, parsed.season, epNum)) {
-                                    app.log.info({ itemId: parsed.itemId, season: parsed.season, episode: epNum }, 'Season download: episode already exists, skipping');
-                                    continue;
-                                }
+
+                            const downloadEpisode = async (epNum) => {
+                                if (seasonState.cancelled || !activeDownloads.has(seasonKey)) return;
                                 const epFullId = `${parsed.itemId}:${parsed.season}:${epNum}`;
-                                if (activeDownloads.has(`episode:${epFullId}`))
-                                    continue;
                                 const best = await fetchBestCandidate('series', epFullId);
-                                if (!best)
-                                    continue;
+                                if (!best) return;
                                 const ss = String(parsed.season).padStart(2, '0');
                                 const ee = String(epNum).padStart(2, '0');
                                 const ext = path.extname(best.filename || '') || '.mkv';
                                 const filename = sanitizePathSegment(best.filename || `${showTitle} - S${ss}E${ee} - 1080p${ext}`, `${showTitle} - S${ss}E${ee}${ext}`);
                                 const destDir = path.join('/media/tv', showTitle, `Season ${parsed.season}`);
-                                seasonState.filename = `S${ss}E${ee} (${i + 1}/${epNumbers.length})`;
-                                await downloadFileToDisk(`episode:${epFullId}`, best.url, destDir, filename, best.videoSize, triggerRescan);
-                            }
+                                try {
+                                    await downloadFileToDisk(`episode:${epFullId}`, best.url, destDir, filename, best.videoSize, triggerRescan);
+                                    completedCount++;
+                                    seasonState.filename = `${showTitle} Season ${parsed.season} (${completedCount}/${totalCount})`;
+                                } catch (err) {
+                                    app.log.warn({ err, epNum }, 'Direct season episode download failed');
+                                }
+                            };
+
+                            const concurrency = Math.max(1, sharedSettings ? sharedSettings.maxConcurrentDownloads : 2);
+                            const workerCount = Math.min(concurrency, remainingEpisodes.length);
+                            let nextIdx = 0;
+
+                            const worker = async () => {
+                                while (nextIdx < remainingEpisodes.length) {
+                                    if (seasonState.cancelled || !activeDownloads.has(seasonKey)) break;
+                                    const epNum = remainingEpisodes[nextIdx++];
+                                    await downloadEpisode(epNum);
+                                }
+                            };
+
+                            const workers = Array.from({ length: workerCount }, () => worker());
+                            await Promise.all(workers);
                         }
                         catch (err) {
                             app.log.warn({ err, id }, 'Direct season download failed');

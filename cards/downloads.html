@@ -1581,12 +1581,30 @@ function renderActive() {
   const wrap = document.getElementById('active-wrap');
   const list = document.getElementById('active-list');
   const items = currentData.items || [];
-  if (items.length === 0) {
+  const activeSeasons = currentData.activeSeasons || [];
+  if (items.length === 0 && activeSeasons.length === 0) {
     wrap.style.display = 'none';
     return;
   }
   wrap.style.display = 'block';
-  list.innerHTML = items.map(function(d) {
+
+  let seasonHtml = '';
+  if (activeSeasons.length > 0) {
+    seasonHtml = activeSeasons.map(function(s) {
+      return '<div class="card" style="border-color: rgba(56, 189, 248, 0.4); background: linear-gradient(180deg, #091a24 0%, #0d0d0d 100%); margin-bottom: 12px;">' +
+        '<div class="row">' +
+          '<div style="display:flex; align-items:center; gap:8px;">' +
+            '<span style="background: rgba(56, 189, 248, 0.2); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4); font-size: 11px; padding: 2px 8px; border-radius: 999px; font-weight: 700; letter-spacing: 0.03em;">📺 Season Batch</span>' +
+            '<strong>' + escapeHtml(s.title) + '</strong>' +
+          '</div>' +
+          '<button class="btn-base btn-danger btn-sm" onclick="cancelDl(\'' + escapeHtml(s.key) + '\')">Cancel Season</button>' +
+        '</div>' +
+        '<div class="meta-dl" style="color: #38bdf8; margin-top: 6px;">Downloading episodes in parallel</div>' +
+      '</div>';
+    }).join('');
+  }
+
+  list.innerHTML = seasonHtml + items.map(function(d) {
     if (d.status === 'queued') {
       return '<div class="card" style="border-color: rgba(245, 158, 11, 0.4); background: linear-gradient(180deg, #18140c 0%, #0d0d0d 100%);">' +
         '<div class="row">' +
