@@ -432,6 +432,12 @@
     border-color: var(--accent);
     box-shadow: 0 0 0 2px var(--accent-glow);
   }
+  .sort-controls-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
   select.sort-select {
     background: #050609;
     border: 1px solid var(--border);
@@ -444,6 +450,47 @@
     cursor: pointer;
     outline: none;
     transition: all 0.2s;
+  }
+  .sort-dir-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    background: #0b0f19;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    padding: 9px 13px;
+    color: #e0f2fe;
+    font-size: 13px;
+    font-family: inherit;
+    font-weight: 700;
+    cursor: pointer;
+    outline: none;
+    transition: all 0.15s ease;
+    user-select: none;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .sort-dir-btn:hover {
+    background: #141c2e;
+    border-color: var(--accent);
+    color: #38bdf8;
+    transform: translateY(-1px);
+  }
+  .sort-dir-btn:active {
+    transform: translateY(1px);
+  }
+  .sort-dir-btn #sort-dir-icon {
+    font-size: 14px;
+    font-weight: 800;
+    line-height: 1;
+    color: #38bdf8;
+  }
+  .sort-dir-btn.is-asc #sort-dir-icon {
+    color: #34d399;
+  }
+  .sort-dir-btn.is-desc #sort-dir-icon {
+    color: #38bdf8;
   }
   select.sort-select:focus {
     border-color: var(--accent);
@@ -783,7 +830,9 @@
     .pills-row::-webkit-scrollbar { display: none; }
     .search-sort-row { flex-direction: column; align-items: stretch; gap: 8px; }
     .search-box { min-width: 0; width: 100%; }
-    select.sort-select { width: 100%; }
+    .sort-controls-wrap { width: 100%; display: flex; gap: 8px; }
+    select.sort-select { flex: 1; min-width: 0; width: 100%; }
+    .sort-dir-btn { flex-shrink: 0; }
 
     /* Show group headers on mobile */
     .show-group-header {
@@ -1129,12 +1178,22 @@
     <div id="filter-banner" style="display:none;"></div>
     <div class="search-sort-row">
       <input type="text" id="search-input" class="search-box" placeholder="Filter by show, episode, or filename..." oninput="onSearchChange()">
-      <select id="sort-select" class="sort-select" onchange="onSortChange()">
-        <option value="size-desc">Sort by: Largest Size</option>
-        <option value="size-asc">Sort by: Smallest Size</option>
-        <option value="date-desc">Sort by: Newest Added</option>
-        <option value="title-asc">Sort by: Title A–Z</option>
-      </select>
+      <div class="sort-controls-wrap">
+        <select id="sort-select" class="sort-select" onchange="onSortChange()" aria-label="Sort downloaded files">
+          <option value="size-desc">Sort by: Size (Largest first)</option>
+          <option value="size-asc">Sort by: Size (Smallest first)</option>
+          <option value="date-desc">Sort by: Date Added (Newest first)</option>
+          <option value="date-asc">Sort by: Date Added (Oldest first)</option>
+          <option value="title-asc">Sort by: Title (A → Z)</option>
+          <option value="title-desc">Sort by: Title (Z → A)</option>
+          <option value="episode-asc">Sort by: Episode (1 → N)</option>
+          <option value="episode-desc">Sort by: Episode (N → 1)</option>
+        </select>
+        <button type="button" id="sort-dir-btn" class="sort-dir-btn is-desc" onclick="toggleSortDirection()" title="Descending order (Click to switch to Ascending)" aria-label="Toggle sort order between ascendant and descendant">
+          <span id="sort-dir-icon">↓</span>
+          <span id="sort-dir-label">Desc</span>
+        </button>
+      </div>
     </div>
   </div>
 
@@ -1563,9 +1622,57 @@ function onSearchChange() {
   renderFiles();
 }
 
-function onSortChange() {
-  currentSort = document.getElementById('sort-select').value;
+function getSortField() {
+  const parts = currentSort.split('-');
+  return parts[0] || 'size';
+}
+
+function getSortDirection() {
+  return currentSort.endsWith('-asc') ? 'asc' : 'desc';
+}
+
+function updateSortDirButton() {
+  const btn = document.getElementById('sort-dir-btn');
+  const icon = document.getElementById('sort-dir-icon');
+  const label = document.getElementById('sort-dir-label');
+  if (!btn) return;
+  const dir = getSortDirection();
+  if (dir === 'asc') {
+    if (icon) icon.textContent = '↑';
+    if (label) label.textContent = 'Asc';
+    btn.className = 'sort-dir-btn is-asc';
+    btn.setAttribute('title', 'Ascending order (Click to switch to Descending)');
+    btn.setAttribute('aria-label', 'Ascending sort order. Click to switch to Descending.');
+  } else {
+    if (icon) icon.textContent = '↓';
+    if (label) label.textContent = 'Desc';
+    btn.className = 'sort-dir-btn is-desc';
+    btn.setAttribute('title', 'Descending order (Click to switch to Ascending)');
+    btn.setAttribute('aria-label', 'Descending sort order. Click to switch to Ascending.');
+  }
+}
+
+function setSort(field, dir) {
+  currentSort = field + '-' + dir;
+  const sel = document.getElementById('sort-select');
+  if (sel) sel.value = currentSort;
+  updateSortDirButton();
   renderFiles();
+}
+
+function onSortChange() {
+  const sel = document.getElementById('sort-select');
+  if (sel) {
+    currentSort = sel.value;
+  }
+  updateSortDirButton();
+  renderFiles();
+}
+
+function toggleSortDirection() {
+  const field = getSortField();
+  const newDir = getSortDirection() === 'asc' ? 'desc' : 'asc';
+  setSort(field, newDir);
 }
 
 function toggleSelect(id) {
@@ -1612,8 +1719,38 @@ function getFilteredFiles() {
   list = list.slice().sort(function(a, b) {
     if (currentSort === 'size-desc') return (Number(b.size) || 0) - (Number(a.size) || 0);
     if (currentSort === 'size-asc') return (Number(a.size) || 0) - (Number(b.size) || 0);
-    if (currentSort === 'date-desc') return (Number(b.added_at) || 0) - (Number(a.added_at) || 0);
-    if (currentSort === 'title-asc') return (a.title || '').localeCompare(b.title || '');
+    if (currentSort === 'date-desc') {
+      const da = Number(a.added_at) || 0;
+      const db = Number(b.added_at) || 0;
+      return db - da;
+    }
+    if (currentSort === 'date-asc') {
+      const da = Number(a.added_at) || 0;
+      const db = Number(b.added_at) || 0;
+      return da - db;
+    }
+    if (currentSort === 'title-asc') {
+      const ta = (a.title || a.relative_path || '').toLowerCase();
+      const tb = (b.title || b.relative_path || '').toLowerCase();
+      return ta.localeCompare(tb);
+    }
+    if (currentSort === 'title-desc') {
+      const ta = (a.title || a.relative_path || '').toLowerCase();
+      const tb = (b.title || b.relative_path || '').toLowerCase();
+      return tb.localeCompare(ta);
+    }
+    if (currentSort === 'episode-asc') {
+      const epA = ((Number(a.season) || 0) * 10000) + (Number(a.episode_start != null ? a.episode_start : a.episode) || 0);
+      const epB = ((Number(b.season) || 0) * 10000) + (Number(b.episode_start != null ? b.episode_start : b.episode) || 0);
+      if (epA !== epB) return epA - epB;
+      return (a.relative_path || '').localeCompare(b.relative_path || '');
+    }
+    if (currentSort === 'episode-desc') {
+      const epA = ((Number(a.season) || 0) * 10000) + (Number(a.episode_start != null ? a.episode_start : a.episode) || 0);
+      const epB = ((Number(b.season) || 0) * 10000) + (Number(b.episode_start != null ? b.episode_start : b.episode) || 0);
+      if (epA !== epB) return epB - epA;
+      return (b.relative_path || '').localeCompare(a.relative_path || '');
+    }
     return 0;
   });
 
@@ -1877,8 +2014,19 @@ function renderFiles() {
       g.totalBytes += (Number(f.size) || 0);
     }
 
+    let groupsList = Array.from(groupsMap.values());
+    if (currentSort === 'size-desc') {
+      groupsList.sort(function(a, b) { return b.totalBytes - a.totalBytes; });
+    } else if (currentSort === 'size-asc') {
+      groupsList.sort(function(a, b) { return a.totalBytes - b.totalBytes; });
+    } else if (currentSort === 'title-asc' || currentSort === 'episode-asc') {
+      groupsList.sort(function(a, b) { return a.title.localeCompare(b.title); });
+    } else if (currentSort === 'title-desc' || currentSort === 'episode-desc') {
+      groupsList.sort(function(a, b) { return b.title.localeCompare(a.title); });
+    }
+
     let html = '';
-    groupsMap.forEach(function(group) {
+    groupsList.forEach(function(group) {
       const isCollapsed = collapsedShows.has(group.title);
       html += '<div class="show-group ' + (isCollapsed ? 'collapsed' : '') + '">' +
         '<div class="show-group-header" onclick="toggleShowGroup(\'' + escapeHtml(group.title) + '\')">' +
@@ -1919,6 +2067,7 @@ function escapeHtml(str) {
 }
 
 function render() {
+  updateSortDirButton();
   renderStats();
   renderActive();
   renderPills();
