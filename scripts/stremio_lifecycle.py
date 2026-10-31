@@ -1,4 +1,4 @@
-"""Start My-Media-Dock with Stremio; drain active downloads and scans safely before stopping."""
+"""Start Stremio-Local-Media-Server with Stremio; drain active downloads and scans safely before stopping."""
 from __future__ import annotations
 
 import argparse
@@ -116,7 +116,7 @@ class Api:
 
 
 def inspect_work():
-    """Check active My-Media-Dock downloads and library scans."""
+    """Check active Stremio-Local-Media-Server downloads and library scans."""
     snapshot = {"downloads": 0, "scanning": False, "libraryProblems": 0}
     api = Api()
     dl_status = api.request("http://127.0.0.1:60500/downloads/status")

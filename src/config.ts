@@ -96,7 +96,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     port: numberValue(env.PORT, 60500, 1),
     host: env.HOST || '0.0.0.0',
     baseUrl: cleanBaseUrl(env.BASE_URL || `http://localhost:${env.PORT || 60500}`),
-    addonName: env.ADDON_NAME?.trim() || 'Stremio Downloader Server',
+    addonName: env.ADDON_NAME?.trim() || 'Stremio Local Media Server',
     tmdbApiKey: env.TMDB_API_KEY?.trim() || '',
     adminUsername: env.ADMIN_USERNAME?.trim() || 'admin',
     adminPassword: env.ADMIN_PASSWORD || 'change-me',

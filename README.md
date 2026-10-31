@@ -1,4 +1,4 @@
-# Stremio-Downloader-Server 🎬💾
+# Stremio-Local-Media-Server 🎬💾
 
 > **The Zero-Transcode, Plex-less Personal Media Server & Downloader for Stremio.**  
 > Seamlessly select, download, and stream Debrid media directly inside Stremio across all your devices with **Gigabit LAN direct play** at home and **zero-VPN remote streaming** away from home.
@@ -9,11 +9,11 @@
 
 ---
 
-## 💡 Why Stremio-Downloader-Server?
+## 💡 Why Stremio-Local-Media-Server?
 
 Traditional personal media setups (like Plex, Jellyfin, or Emby) force you to maintain a heavy second ecosystem: separate apps, library sync daemons, and CPU-melting live video transcoding.
 
-**Stremio-Downloader-Server replaces that entire stack with a 100% native Stremio addon:**
+**Stremio-Local-Media-Server replaces that entire stack with a 100% native Stremio addon:**
 
 * **Pure Stremio Interface:** No app switching. Media discovery, stream selection, 1-click downloading, library browsing, and playback all live **100% inside Stremio**.
 * **Zero Server Transcoding:** Streams are served via **HTTP Direct Play**. Modern phones (iPhone/Android), tablets, and PCs decode 4K and 1080p REMUX video on hardware with zero CPU strain on your server.
@@ -32,8 +32,8 @@ flowchart TD
         TV["iPad / Tablet / TV<br>(Stremio App)"]
     end
 
-    subgraph Server["Stremio-Downloader-Server (Home Server or PC)"]
-        SDS["Stremio-Downloader-Server (Docker Engine)<br>Port 60500"]
+    subgraph Server["Stremio-Local-Media-Server (Home Server or PC)"]
+        SDS["Stremio-Local-Media-Server (Docker Engine)<br>Port 60500"]
         Disk[("Local Storage<br>/media/movies & /media/tv")]
         CF["Cloudflare Tunnel<br>(HTTPS Zero-VPN Route)"]
     end
@@ -48,12 +48,12 @@ flowchart TD
 
 ## ⚡ Quick Start: 24/7 Home Server (Recommended)
 
-Run Stremio-Downloader-Server 24/7 on an always-on server, Raspberry Pi, or mini-PC (Ubuntu/Debian/Arch Linux with Docker).
+Run Stremio-Local-Media-Server 24/7 on an always-on server, Raspberry Pi, or mini-PC (Ubuntu/Debian/Arch Linux with Docker).
 
 ### 1. Clone & Configure
 
 ```bash
-git clone https://github.com/CedricS789/stremio-downloader-server.git ~/stremio-dock/app
+git clone https://github.com/CedricS789/stremio-local-media-server.git ~/stremio-dock/app
 cd ~/stremio-dock/app
 cp .env.example .env
 ```
@@ -99,13 +99,13 @@ Verify that the service is running:
 
 ## 💻 Desktop Workstation Setup (Windows 10/11 + WSL 2)
 
-If you prefer to run Stremio-Downloader-Server locally on your main PC:
+If you prefer to run Stremio-Local-Media-Server locally on your main PC:
 
 1. Ensure **WSL 2 with Ubuntu** and Docker Engine are installed.
 2. Clone the repository in PowerShell:
    ```powershell
-   git clone https://github.com/CedricS789/stremio-downloader-server.git
-   cd stremio-downloader-server
+   git clone https://github.com/CedricS789/stremio-local-media-server.git
+   cd stremio-local-media-server
    ```
 3. Run the setup helper:
    ```powershell
@@ -113,7 +113,7 @@ If you prefer to run Stremio-Downloader-Server locally on your main PC:
    ```
 4. Build and start via Docker:
    ```bash
-   wsl -d Ubuntu-24.04 -e bash -c "cd /mnt/c/path/to/stremio-downloader-server && docker compose up -d --build"
+   wsl -d Ubuntu-24.04 -e bash -c "cd /mnt/c/path/to/stremio-local-media-server && docker compose up -d --build"
    ```
 5. *(Optional)* Install the background watcher that automatically turns on Docker when Stremio opens and cleanly stops it only after active downloads finish:
    ```powershell
@@ -138,7 +138,7 @@ Because iOS Safari does not natively decode `.mkv` containers or `VC-1` codecs:
 ## 🗂️ Architecture & Project Structure
 
 ```text
-stremio-downloader-server/
+stremio-local-media-server/
 ├── cards/                  # HTML5/JS Live Downloads Dashboard & Interactive Source Selector
 │   ├── choose.html         # Quality, resolution, and episode selection modal
 │   └── downloads.html      # Storage stats, active download progress bars & 1-click delete
@@ -172,7 +172,7 @@ stremio-downloader-server/
 
 ## 🤝 Attribution & Open Source
 
-Stremio-Downloader-Server is proudly built upon foundational work from:
+Stremio-Local-Media-Server is proudly built upon foundational work from:
 * [riverflow-media/nuvi-flow](https://github.com/riverflow-media/nuvi-flow)
 * [Squipy411/personal-media-addon](https://github.com/Squipy411/personal-media-addon)
 

@@ -1,7 +1,7 @@
 # Home Server Deployment & Multi-Device Stremio Architecture Guide
 
 > **Target Machine:** Dedicated Linux Home Server (Ubuntu / Debian / Arch / Raspberry Pi, x86_64 or ARM64)  
-> **Repository:** [CedricS789/Stremio-Downloader-Server](https://github.com/CedricS789/Stremio-Downloader-Server)  
+> **Repository:** [CedricS789/Stremio-Local-Media-Server](https://github.com/CedricS789/Stremio-Local-Media-Server)  
 > **Target Clients:** Windows Desktop (Native App), iPhone (Stremio Web PWA), iPad (Stremio Web PWA), Android / Smart TVs  
 > **Status:** Production-Ready Self-Hosted Media Engine
 
@@ -9,11 +9,11 @@
 
 ## 1. Executive Summary & Architecture Vision
 
-**Stremio-Downloader-Server** runs 24/7 on your dedicated home server or mini-PC.
+**Stremio-Local-Media-Server** runs 24/7 on your dedicated home server or mini-PC.
 
 ### The "100% Pure Stremio" Philosophy
 Unlike traditional setups that require heavy media servers like Plex or Jellyfin:
-* **No Plex or Jellyfin required:** Stremio-Downloader-Server operates directly as a native Stremio streaming and catalog addon server.
+* **No Plex or Jellyfin required:** Stremio-Local-Media-Server operates directly as a native Stremio streaming and catalog addon server.
 * **Unified Single Interface:** Media discovery, debrid stream selection, 1-click downloading, and playback all happen **100% inside Stremio** across all your devices.
 * **Zero Server Transcoding:** Video playback is delivered via **HTTP Direct Play**. Decoding is offloaded to client hardware (iPhone, iPad, PC GPU), eliminating CPU strain on the server.
 * **Dual-Stream Playback Engine:** When a file is downloaded, Stremio automatically provides two streams:
@@ -29,7 +29,7 @@ flowchart TD
     end
 
     subgraph HomeServer["Home Server (24/7 Always-On)"]
-        MMD["Stremio-Downloader-Server (Docker)<br>Port 60500"]
+        MMD["Stremio-Local-Media-Server (Docker)<br>Port 60500"]
         CFTunnel["Cloudflare Tunnel<br>(cloudflared)"]
         Cron["Storage Monitor (Cron)<br>100 GB Soft Limit"]
         Disk[("Storage SSD / HDD<br>/media/movies & /media/tv")]
@@ -53,8 +53,8 @@ The application is deployed with the following parameters:
   * Media Movies: `~/stremio-dock/media/movies`
   * Media TV: `~/stremio-dock/media/tv`
   * Storage Monitor: `~/stremio-dock/monitor`
-* **Docker Container:** `stremio-downloader-server`
-  * Image: `stremio-downloader-server:latest`
+* **Docker Container:** `stremio-local-media-server`
+  * Image: `stremio-local-media-server:latest`
   * Default Port: `60500`
   * Health Endpoint: `http://localhost:60500/health`
   * Web Downloads & Storage Dashboard: `http://localhost:60500/downloads`
@@ -86,7 +86,7 @@ Because Stremio's UI runs inside a secure web context (`https://app.strem.io` an
    * **Subdomain:** `dock` (or your choice)
    * **Domain:** `yourdomain.com`
    * **Service Type:** `HTTP`
-   * **URL:** `stremio-downloader-server:60500` (or `localhost:60500`)
+   * **URL:** `stremio-local-media-server:60500` (or `localhost:60500`)
 5. Click **Save hostname**.
 
 ---
@@ -134,12 +134,12 @@ https://dock.yourdomain.com/addon/<YOUR_ACCESS_TOKEN>/manifest.json
 
 ### Check Container Status
 ```bash
-docker ps --filter "name=stremio-downloader-server"
+docker ps --filter "name=stremio-local-media-server"
 ```
 
 ### View Live Logs
 ```bash
-docker logs -f stremio-downloader-server
+docker logs -f stremio-local-media-server
 ```
 
 ### Restart Container

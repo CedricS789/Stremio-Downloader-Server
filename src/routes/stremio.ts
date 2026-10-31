@@ -13,7 +13,7 @@ import { planSiloPlayback } from '../services/playback/playback-policy.js';
 const manifest = {
     id: 'community.nuviflow',
     version: buildInfo().version,
-    name: 'Stremio Downloader Server',
+    name: 'Stremio Local Media Server',
     description: 'Direct playback and in-Stremio downloads for your personal movie and TV library.',
     resources: ['catalog', 'stream'],
     types: ['movie', 'series'],
@@ -21,13 +21,13 @@ const manifest = {
         {
             type: 'movie',
             id: 'personal_movies',
-            name: 'Stremio Downloader Server - Downloaded',
+            name: 'Stremio Local Media Server - Downloaded',
             extra: [{ name: 'search', isRequired: false }, { name: 'skip', isRequired: false }]
         },
         {
             type: 'series',
             id: 'personal_series',
-            name: 'Stremio Downloader Server - Downloaded',
+            name: 'Stremio Local Media Server - Downloaded',
             extra: [{ name: 'search', isRequired: false }, { name: 'skip', isRequired: false }]
         }
     ],
@@ -1502,8 +1502,8 @@ export function registerStremioRoutes(app, database, settings, config, requester
             .header('Cache-Control', 'no-store')
             .send({
             ...manifest,
-            name: 'Stremio Downloader Server',
-            catalogs: manifest.catalogs.map(c => ({ ...c, name: 'Stremio Downloader Server - Downloaded' })),
+            name: 'Stremio Local Media Server',
+            catalogs: manifest.catalogs.map(c => ({ ...c, name: 'Stremio Local Media Server - Downloaded' })),
             logo: `${settings.baseUrl}/addon-icon?v=${settings.addonIconUpdatedAt}`
         });
     });
@@ -1605,7 +1605,7 @@ export function registerStremioRoutes(app, database, settings, config, requester
         });
         deviceCapabilities.touchDevice(deviceIdentity.id, deviceIdentity.source);
 
-        const addonName = settings.addonName || 'Stremio Downloader Server';
+        const addonName = settings.addonName || 'Stremio Local Media Server';
 
         // 1. Build playable streams for already-downloaded local files
         const streams = files.flatMap((file) => {

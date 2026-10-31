@@ -1,4 +1,4 @@
-name: stremio-downloader-server
+name: stremio-local-media-server
 
 x-logging: &logging
   driver: json-file
@@ -7,12 +7,12 @@ x-logging: &logging
     max-file: "3"
 
 services:
-  stremio-downloader-server:
+  stremio-local-media-server:
     build:
       context: .
       dockerfile: Dockerfile
-    image: stremio-downloader-server:latest
-    container_name: stremio-downloader-server
+    image: stremio-local-media-server:latest
+    container_name: stremio-local-media-server
     platform: linux/amd64
     restart: unless-stopped
     init: true
@@ -23,7 +23,7 @@ services:
       PORT: "60500"
       BASE_URL: "${BASE_URL:-http://localhost:60500}"
       LAN_BASE_URL: "${LAN_BASE_URL:-}"
-      ADDON_NAME: "${ADDON_NAME:-Stremio Downloader Server}"
+      ADDON_NAME: "${ADDON_NAME:-Stremio Local Media Server}"
       ADMIN_USERNAME: admin
       ADMIN_PASSWORD: "${NUVI_ADMIN_PASSWORD:?Run scripts/Initialize.ps1 first}"
       SESSION_SECRET: "${NUVI_SESSION_SECRET:?Run scripts/Initialize.ps1 first}"

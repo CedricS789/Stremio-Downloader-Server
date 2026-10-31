@@ -34,12 +34,12 @@ jobs:
             --build-arg VERSION=${{ steps.app-version.outputs.version }} \
             --build-arg REVISION=${{ github.sha }} \
             --build-arg SOURCE_URL=https://github.com/${{ github.repository }} \
-            -t my-media-dock:deployment-test \
+            -t stremio-local-media-server:deployment-test \
             .
       - name: Verify container health
         run: |
-          test_container="my-media-dock-ci-${{ github.run_id }}"
-          test_volume="my-media-dock-ci-data-${{ github.run_id }}"
+          test_container="stremio-local-media-server-ci-${{ github.run_id }}"
+          test_volume="stremio-local-media-server-ci-data-${{ github.run_id }}"
           cleanup() {
             docker rm -f "$test_container" >/dev/null 2>&1 || true
             docker volume rm "$test_volume" >/dev/null 2>&1 || true
@@ -56,7 +56,7 @@ jobs:
             -e STREAM_SECRET=ci-stream-secret-at-least-32-characters \
             -e SCAN_ON_STARTUP=false \
             -e WATCH_MEDIA=false \
-            my-media-dock:deployment-test
+            stremio-local-media-server:deployment-test
           for attempt in $(seq 1 45); do
             health="$(docker inspect --format '{{.State.Health.Status}}' "$test_container")"
             if [ "$health" = healthy ]; then

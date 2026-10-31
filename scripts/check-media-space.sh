@@ -23,9 +23,9 @@ LEVEL=0
 PREVIOUS=$(cat "$STATE" 2>/dev/null || echo 0)
 if (( LEVEL > PREVIOUS )); then
   USED_GB=$(awk -v n="$USED" 'BEGIN {printf "%.1f", n/1000000000}')
-  MESSAGE="My-Media-Dock media storage is ${USED_GB} GB; warning threshold is ${LEVEL}% (soft limit ${LIMIT_GB} GB)."
+  MESSAGE="Stremio-Local-Media-Server media storage is ${USED_GB} GB; warning threshold is ${LEVEL}% (soft limit ${LIMIT_GB} GB)."
   printf '%s %s\n' "$(date --iso-8601=seconds)" "$MESSAGE" >> "$LOG"
-  logger -p user.warning -t my-media-dock-storage "$MESSAGE" || true
+  logger -p user.warning -t stremio-local-media-server-storage "$MESSAGE" || true
   printf '%s\n' "$LEVEL" > "$STATE"
 elif (( USED < WARN )); then
   printf '0\n' > "$STATE"

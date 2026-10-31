@@ -11,8 +11,8 @@ export class SettingsService {
       this.regenerateAddonAccessToken();
     }
     const current = this.database.getSetting('addonName');
-    if (!current || current === 'Nuvi-Flow' || current === 'My-Media-Dock' || current === 'My Media Dock') {
-      this.set('addonName', 'Stremio Downloader Server');
+    if (!current || current === 'Nuvi-Flow' || current === 'My-Media-Dock' || current === 'My Media Dock' || current === 'Stremio Downloader Server') {
+      this.set('addonName', 'Stremio Local Media Server');
     }
   }
 
@@ -27,7 +27,7 @@ export class SettingsService {
   get baseUrl(): string { return this.get('baseUrl', this.defaults.baseUrl).replace(/\/+$/, ''); }
   get addonName(): string {
     const val = this.get('addonName', this.defaults.addonName);
-    return (!val || val === 'Nuvi-Flow' || val === 'My-Media-Dock' || val === 'My Media Dock') ? 'Stremio Downloader Server' : val;
+    return (!val || val === 'Nuvi-Flow' || val === 'My-Media-Dock' || val === 'My Media Dock' || val === 'Stremio Downloader Server') ? 'Stremio Local Media Server' : val;
   }
   get addonAccessToken(): string { return this.get('addonAccessToken'); }
   get addonAccessPath(): string { return `/addon/${this.addonAccessToken}`; }

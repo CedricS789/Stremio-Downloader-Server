@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Choose Quality & Release — Stremio Downloader Server</title>
+<title>Choose Quality & Release — Stremio Local Media Server</title>
 <style>
   :root {
     --bg: #000000;
@@ -557,7 +557,7 @@
       <div class="logo-icon">⚡</div>
       <div class="brand-text">
         <h1>Source Selection</h1>
-        <p>Stremio Downloader Server</p>
+        <p>Stremio Local Media Server</p>
       </div>
     </div>
     <div>
@@ -760,7 +760,7 @@ async function loadSources() {
       if (mode === 'season') {
         const parts = id.split(':');
         titleEl.innerText = `${meta.name} — Season ${parts[1] || ''}`;
-        subEl.innerText = `Pick a release profile below. Stremio Downloader Server will download all remaining episodes in Season ${parts[1] || ''} using this source pack.`;
+        subEl.innerText = `Pick a release profile below. Stremio Local Media Server will download all remaining episodes in Season ${parts[1] || ''} using this source pack.`;
       } else if (mode === 'episode') {
         const parts = id.split(':');
         const s = parts[1] || '';
@@ -833,7 +833,7 @@ async function loadSources() {
     document.getElementById('streamList').innerHTML = `
       <div class="state-box">
         <p style="color:#f43f5e; font-weight:700; margin:0 0 8px 0;">Failed to load sources</p>
-        <p style="color:var(--text-muted); font-size:13px; margin:0;">${err.message || 'Network error'}. Make sure Stremio Downloader Server is running and AIOStreams is reachable.</p>
+        <p style="color:var(--text-muted); font-size:13px; margin:0;">${err.message || 'Network error'}. Make sure Stremio Local Media Server is running and AIOStreams is reachable.</p>
         <button class="nav-btn" style="margin-top:16px;" onclick="loadSources()">Retry</button>
       </div>
     `;

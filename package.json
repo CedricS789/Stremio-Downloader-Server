@@ -1,10 +1,10 @@
 {
-  "name": "stremio-downloader-server",
+  "name": "stremio-local-media-server",
   "version": "1.0.1",
   "private": true,
   "type": "module",
   "main": "desktop/main.cjs",
-  "description": "Self-hosted Stremio personal media server with AIOStreams downloading",
+  "description": "Self-hosted Stremio local media server with AIOStreams downloading",
   "author": "Personal Media Addon contributors and Nuvi-Flow contributors",
   "license": "MIT",
   "engines": {
