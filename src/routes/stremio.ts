@@ -100,6 +100,40 @@ function wrapLines(items: (string | null | undefined)[], maxLen = 25): string[] 
     return lines;
 }
 
+function wrapFilename(fname: string, maxLen = 25): string[] {
+    if (!fname) return [];
+    if (fname.length <= maxLen) return [fname];
+
+    const delimiter = fname.includes(' ') ? ' ' : (fname.includes('.') ? '.' : '_');
+    const tokens = fname.split(delimiter);
+    const lines: string[] = [];
+    let current = '';
+
+    for (const token of tokens) {
+        if (!token) continue;
+        if (token.length > maxLen) {
+            if (current) {
+                lines.push(current + (delimiter !== ' ' ? delimiter : ''));
+                current = '';
+            }
+            for (let i = 0; i < token.length; i += maxLen) {
+                lines.push(token.slice(i, i + maxLen));
+            }
+            continue;
+        }
+        if (!current) {
+            current = token;
+        } else if ((current + delimiter + token).length <= maxLen) {
+            current += delimiter + token;
+        } else {
+            lines.push(current + (delimiter !== ' ' ? delimiter : ''));
+            current = token;
+        }
+    }
+    if (current) lines.push(current);
+    return lines;
+}
+
 function formatProgressBar(downloaded, total, startedAt) {
     const pct = total > 0 ? Math.min(99, Math.round((downloaded / total) * 100)) : 0;
     const filled = Math.max(0, Math.min(8, Math.round(pct / 12.5)));
@@ -1582,16 +1616,18 @@ export function registerStremioRoutes(app, database, settings, config, requester
                 : (showTitle ? `${showTitle}${file.item_year ? ` (${file.item_year})` : ''}.mkv` : path.basename(file.relative_path));
 
             const lanBase = (settings.lanBaseUrl || String(process.env.LAN_BASE_URL || '')).trim().replace(/\/+$/, '');
-            const localDesc = wrapLines([
+            const diskFilename = path.basename(file.relative_path);
+            const wrappedFileLines = wrapFilename(diskFilename, 25);
+            const localDesc = [
                 `🏠 LAN Direct • ${res}`,
                 detailsLine,
-                playTag
-            ]).join('\n');
-            const remoteDesc = wrapLines([
+                ...wrappedFileLines
+            ].filter(Boolean).join('\n');
+            const remoteDesc = [
                 `🌐 Remote • ${res}`,
                 detailsLine,
-                playTag
-            ]).join('\n');
+                ...wrappedFileLines
+            ].filter(Boolean).join('\n');
 
             const localStreams = [];
             if (lanBase) {
@@ -1606,7 +1642,7 @@ export function registerStremioRoutes(app, database, settings, config, requester
                     })),
                     behaviorHints: {
                         bingeGroup: `nuvi-flow:${file.media_item_id}`,
-                        filename: cleanFilename,
+                        filename: diskFilename,
                         videoSize: file.size
                     }
                 });
@@ -1622,7 +1658,7 @@ export function registerStremioRoutes(app, database, settings, config, requester
                 })),
                 behaviorHints: {
                     bingeGroup: `nuvi-flow:${file.media_item_id}`,
-                    filename: cleanFilename,
+                    filename: diskFilename,
                     videoSize: file.size
                 }
             });
