@@ -1180,14 +1180,10 @@
       <input type="text" id="search-input" class="search-box" placeholder="Filter by show, episode, or filename..." oninput="onSearchChange()">
       <div class="sort-controls-wrap">
         <select id="sort-select" class="sort-select" onchange="onSortChange()" aria-label="Sort downloaded files">
-          <option value="size-desc">Sort by: Size (Largest first)</option>
-          <option value="size-asc">Sort by: Size (Smallest first)</option>
-          <option value="date-desc">Sort by: Date Added (Newest first)</option>
-          <option value="date-asc">Sort by: Date Added (Oldest first)</option>
-          <option value="title-asc">Sort by: Title (A → Z)</option>
-          <option value="title-desc">Sort by: Title (Z → A)</option>
-          <option value="episode-asc">Sort by: Episode (1 → N)</option>
-          <option value="episode-desc">Sort by: Episode (N → 1)</option>
+          <option value="size">Sort by: Size</option>
+          <option value="date">Sort by: Date Added</option>
+          <option value="title">Sort by: Title</option>
+          <option value="episode">Sort by: Episode</option>
         </select>
         <button type="button" id="sort-dir-btn" class="sort-dir-btn is-desc" onclick="toggleSortDirection()" title="Descending order (Click to switch to Ascending)" aria-label="Toggle sort order between ascendant and descendant">
           <span id="sort-dir-icon">↓</span>
@@ -1297,6 +1293,8 @@ let currentData = { items: [], localFiles: [], shows: [], stats: {} };
 let selectedIds = new Set();
 let activeFilter = 'type:series';
 let searchQuery = '';
+let currentSortField = 'size';
+let currentSortDir = 'desc';
 let currentSort = 'size-desc';
 
 function fmtGb(b) {
@@ -1623,12 +1621,11 @@ function onSearchChange() {
 }
 
 function getSortField() {
-  const parts = currentSort.split('-');
-  return parts[0] || 'size';
+  return currentSortField;
 }
 
 function getSortDirection() {
-  return currentSort.endsWith('-asc') ? 'asc' : 'desc';
+  return currentSortDir;
 }
 
 function updateSortDirButton() {
@@ -1653,9 +1650,11 @@ function updateSortDirButton() {
 }
 
 function setSort(field, dir) {
-  currentSort = field + '-' + dir;
+  currentSortField = field || 'size';
+  currentSortDir = dir || 'desc';
+  currentSort = currentSortField + '-' + currentSortDir;
   const sel = document.getElementById('sort-select');
-  if (sel) sel.value = currentSort;
+  if (sel) sel.value = currentSortField;
   updateSortDirButton();
   renderFiles();
 }
@@ -1663,16 +1662,18 @@ function setSort(field, dir) {
 function onSortChange() {
   const sel = document.getElementById('sort-select');
   if (sel) {
-    currentSort = sel.value;
+    currentSortField = sel.value || 'size';
   }
+  currentSort = currentSortField + '-' + currentSortDir;
   updateSortDirButton();
   renderFiles();
 }
 
 function toggleSortDirection() {
-  const field = getSortField();
-  const newDir = getSortDirection() === 'asc' ? 'desc' : 'asc';
-  setSort(field, newDir);
+  currentSortDir = currentSortDir === 'asc' ? 'desc' : 'asc';
+  currentSort = currentSortField + '-' + currentSortDir;
+  updateSortDirButton();
+  renderFiles();
 }
 
 function toggleSelect(id) {
