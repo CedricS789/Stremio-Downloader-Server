@@ -1597,7 +1597,6 @@ export function registerStremioRoutes(app, database, settings, config, requester
             if (lanBase) {
                 localStreams.push({
                     name: addonName,
-                    title: localDesc,
                     description: localDesc,
                     url: `${lanBase}/media/${encodeURIComponent(token)}`,
                     subtitles: subtitles.map((subtitle: any) => ({
@@ -1614,7 +1613,6 @@ export function registerStremioRoutes(app, database, settings, config, requester
             }
             localStreams.push({
                 name: addonName,
-                title: remoteDesc,
                 description: remoteDesc,
                 url: `${settings.baseUrl}/media/${encodeURIComponent(token)}`,
                 subtitles: subtitles.map((subtitle: any) => ({
