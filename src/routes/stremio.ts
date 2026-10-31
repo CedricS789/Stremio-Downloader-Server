@@ -1350,7 +1350,6 @@ export function registerStremioRoutes(app, database, settings, config, requester
                     } finally {
                         activeDownloads.delete(seasonKey);
                     }
-                    }
                 })();
             }
             return reply.send({ ok: true, key: seasonKey });
