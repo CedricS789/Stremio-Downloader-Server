@@ -48,6 +48,10 @@
   }
 
   * { box-sizing: border-box; }
+  html, body {
+    max-width: 100%;
+    overflow-x: hidden;
+  }
   body {
     background: var(--bg-gradient);
     color: var(--text);
@@ -60,6 +64,9 @@
   .wrap {
     max-width: 1060px;
     margin: 0 auto;
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
     padding: 24px 16px;
     padding-left: max(16px, env(safe-area-inset-left));
     padding-right: max(16px, env(safe-area-inset-right));
@@ -453,9 +460,28 @@
 
   /* Smartphone Layout Styles (< 640px) */
   @media (max-width: 640px) {
-    .wrap { padding: 16px 12px; }
+    html, body {
+      max-width: 100%;
+      overflow-x: hidden;
+    }
+    .wrap { padding: 14px 10px; width: 100%; min-width: 0; }
     .top-nav { padding: 10px 12px; }
-    .top-nav-inner { gap: 10px; }
+    .top-nav-inner {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 10px;
+    }
+    .top-nav-inner > div:last-child {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      width: 100%;
+    }
+    .top-nav-inner > div:last-child .nav-btn {
+      justify-content: center;
+      text-align: center;
+      width: 100%;
+    }
     .brand-text h1 { font-size: 15px; }
     .nav-btn { padding: 7px 11px; font-size: 12px; }
 
@@ -464,12 +490,23 @@
       align-items: flex-start;
       padding: 16px;
       gap: 14px;
+      min-width: 0;
+      width: 100%;
+      box-sizing: border-box;
     }
     .media-poster {
       width: 72px;
       height: 108px;
     }
-    .media-title { font-size: 18px; }
+    .media-info {
+      width: 100%;
+      min-width: 0;
+    }
+    .media-title {
+      font-size: 18px;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
 
     .filter-chips {
       flex-wrap: nowrap;
@@ -486,6 +523,17 @@
       align-items: stretch;
       gap: 14px;
       padding: 14px;
+      min-width: 0;
+      width: 100%;
+      box-sizing: border-box;
+    }
+    .stream-details {
+      min-width: 0;
+      width: 100%;
+    }
+    .stream-filename {
+      overflow-wrap: anywhere;
+      word-break: break-all;
     }
     .stream-actions {
       width: 100%;

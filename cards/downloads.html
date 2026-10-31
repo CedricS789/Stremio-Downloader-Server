@@ -45,6 +45,10 @@
   }
 
   * { box-sizing: border-box; }
+  html, body {
+    max-width: 100%;
+    overflow-x: hidden;
+  }
   body {
     background: var(--bg-gradient);
     color: var(--text);
@@ -58,7 +62,7 @@
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
   }
-  .wrap { max-width: 1080px; margin: 0 auto; }
+  .wrap { max-width: 1080px; margin: 0 auto; width: 100%; min-width: 0; box-sizing: border-box; }
 
   /* Clicky base styling */
   button, .btn, .btn-primary, .btn-danger, .btn-stremio, .nav-btn, .pill, a.btn-primary {
@@ -307,8 +311,14 @@
     padding: 16px 18px;
     margin-bottom: 10px;
     box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
   }
-  .row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .row { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-width: 0; }
+  .card .row > div:first-child { min-width: 0; flex: 1 1 auto; overflow: hidden; }
+  .card .row strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; font-size: 13px; }
+  .card .row button { flex-shrink: 0; }
   .bar-bg {
     width: 100%;
     height: 9px;
@@ -324,7 +334,7 @@
     transition: width 0.3s ease;
     box-shadow: 0 0 10px rgba(16, 185, 129, 0.4);
   }
-  .meta-dl { font-size: 12px; color: var(--text-muted); font-weight: 600; margin-top: 6px; }
+  .meta-dl { font-size: 12px; color: var(--text-muted); font-weight: 600; margin-top: 6px; overflow-wrap: anywhere; word-break: break-word; }
 
   /* Filter Panel */
   .filter-panel {
@@ -698,13 +708,24 @@
 
   /* Smartphone Layout Styles (< 640px) */
   @media (max-width: 640px) {
-    body { padding: 16px 12px; }
+    html, body {
+      max-width: 100%;
+      overflow-x: hidden;
+    }
+    body { padding: 14px 10px; }
+    .wrap { width: 100%; min-width: 0; padding: 0; }
     .header { flex-direction: column; align-items: stretch; gap: 14px; margin-bottom: 18px; }
+    .brand { min-width: 0; }
+    .brand h1 { font-size: 19px; overflow-wrap: anywhere; word-break: break-word; }
+    .brand p.sub { font-size: 12px; overflow-wrap: anywhere; }
     .header-actions {
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 8px;
       width: 100%;
+    }
+    .header-actions a:last-child {
+      grid-column: 1 / -1;
     }
     .header-actions .btn-base, .header-actions button, .header-actions a {
       justify-content: center;
@@ -714,14 +735,40 @@
     }
     .stats-grid {
       grid-template-columns: 1fr 1fr;
-      gap: 10px;
-      margin-bottom: 16px;
+      gap: 8px;
+      margin-bottom: 14px;
     }
-    .stat-card { padding: 14px 14px; }
+    .stat-card { padding: 12px 14px; min-width: 0; }
     .stat-card:last-child {
       grid-column: 1 / -1;
     }
-    .stat-val { font-size: 22px; }
+    .stat-val { font-size: 20px; word-break: break-all; }
+    .stat-label { font-size: 10px; }
+    .stat-sub { font-size: 11px; overflow-wrap: anywhere; }
+
+    /* Storage quota card on mobile */
+    .storage-card { padding: 14px; min-width: 0; }
+    .storage-card-header {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 8px;
+    }
+    .storage-card-val {
+      align-self: flex-start;
+      font-size: 11px;
+    }
+    #tick-25, #tick-80 {
+      display: none;
+    }
+
+    /* Active downloads mobile wrap */
+    .card .row {
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .card .row button {
+      margin-left: auto;
+    }
 
     /* Horizontal scroll for pills on small screens */
     .pills-row {
@@ -734,8 +781,34 @@
     }
     .pills-row::-webkit-scrollbar { display: none; }
     .search-sort-row { flex-direction: column; align-items: stretch; gap: 8px; }
-    .search-box { min-width: 100%; }
+    .search-box { min-width: 0; width: 100%; }
     select.sort-select { width: 100%; }
+
+    /* Show group headers on mobile */
+    .show-group-header {
+      padding: 12px 14px;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 10px;
+    }
+    .show-group-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      min-width: 0;
+      flex-wrap: wrap;
+    }
+    .show-title {
+      max-width: calc(100% - 130px);
+    }
+    .show-group-actions {
+      width: 100%;
+    }
+    .show-group-actions button {
+      width: 100%;
+      justify-content: center;
+    }
 
     /* Responsive File Card on Mobile */
     .file-item {
@@ -743,12 +816,22 @@
       align-items: stretch;
       gap: 10px;
       padding: 12px 14px;
+      min-width: 0;
+      max-width: 100%;
     }
     .file-item-header {
       display: flex;
       align-items: center;
       gap: 10px;
       width: 100%;
+      min-width: 0;
+    }
+    .file-meta-link, .file-meta {
+      display: block;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
     .file-item-footer {
       display: flex;
@@ -758,14 +841,34 @@
       border-top: 1px solid rgba(255, 255, 255, 0.05);
       padding-top: 8px;
       margin-top: 2px;
+      min-width: 0;
     }
     .file-actions {
-      width: 100%;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
       justify-content: flex-end;
     }
     .btn-stremio, .btn-danger {
       min-height: 38px;
       padding: 6px 12px;
+    }
+
+    /* Modal dialogs on mobile */
+    .modal-dialog {
+      max-width: calc(100vw - 24px);
+      margin: 12px;
+    }
+    .modal-footer {
+      flex-direction: column-reverse;
+      gap: 8px;
+      padding: 12px 16px 16px;
+    }
+    .modal-footer button {
+      width: 100%;
+      min-height: 42px;
+      justify-content: center;
     }
   }
 
@@ -1593,9 +1696,9 @@ function renderActive() {
     seasonHtml = activeSeasons.map(function(s) {
       return '<div class="card" style="border-color: rgba(56, 189, 248, 0.4); background: linear-gradient(180deg, #091a24 0%, #0d0d0d 100%); margin-bottom: 12px;">' +
         '<div class="row">' +
-          '<div style="display:flex; align-items:center; gap:8px;">' +
-            '<span style="background: rgba(56, 189, 248, 0.2); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4); font-size: 11px; padding: 2px 8px; border-radius: 999px; font-weight: 700; letter-spacing: 0.03em;">📺 Season Batch</span>' +
-            '<strong>' + escapeHtml(s.title) + '</strong>' +
+          '<div style="display:flex; align-items:center; gap:8px; min-width:0; flex:1 1 auto; overflow:hidden;">' +
+            '<span style="background: rgba(56, 189, 248, 0.2); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4); font-size: 11px; padding: 2px 8px; border-radius: 999px; font-weight: 700; letter-spacing: 0.03em; flex-shrink:0;">📺 Season Batch</span>' +
+            '<strong style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0;">' + escapeHtml(s.title) + '</strong>' +
           '</div>' +
           '<button class="btn-base btn-danger btn-sm" onclick="cancelDl(\'' + escapeHtml(s.key) + '\')">Cancel Season</button>' +
         '</div>' +
@@ -1608,9 +1711,9 @@ function renderActive() {
     if (d.status === 'queued') {
       return '<div class="card" style="border-color: rgba(245, 158, 11, 0.4); background: linear-gradient(180deg, #18140c 0%, #0d0d0d 100%);">' +
         '<div class="row">' +
-          '<div style="display:flex; align-items:center; gap:8px;">' +
-            '<span style="background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); font-size: 11px; padding: 2px 8px; border-radius: 999px; font-weight: 700; letter-spacing: 0.03em;">⏳ Queued (#' + (d.queuePosition || 1) + ')</span>' +
-            '<strong>' + escapeHtml(d.filename) + '</strong>' +
+          '<div style="display:flex; align-items:center; gap:8px; min-width:0; flex:1 1 auto; overflow:hidden;">' +
+            '<span style="background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); font-size: 11px; padding: 2px 8px; border-radius: 999px; font-weight: 700; letter-spacing: 0.03em; flex-shrink:0;">⏳ Queued (#' + (d.queuePosition || 1) + ')</span>' +
+            '<strong style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0;">' + escapeHtml(d.filename) + '</strong>' +
           '</div>' +
           '<button class="btn-base btn-danger btn-sm" onclick="cancelDl(\'' + escapeHtml(d.key) + '\')">Remove</button>' +
         '</div>' +
@@ -1619,7 +1722,7 @@ function renderActive() {
     }
     return '<div class="card">' +
       '<div class="row">' +
-        '<div><strong>' + escapeHtml(d.filename) + '</strong></div>' +
+        '<div style="min-width:0; flex:1 1 auto; overflow:hidden;"><strong style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0;">' + escapeHtml(d.filename) + '</strong></div>' +
         '<button class="btn-base btn-danger btn-sm" onclick="cancelDl(\'' + escapeHtml(d.key) + '\')">Cancel</button>' +
       '</div>' +
       '<div class="bar-bg"><div class="bar-fill" style="width:' + d.percent + '%"></div></div>' +
@@ -1711,15 +1814,15 @@ function renderFileItem(f, isMobile) {
     return '<div class="file-item">' +
       '<div class="file-item-header">' +
         '<input type="checkbox" class="file-check" ' + (isChecked ? 'checked' : '') + ' onchange="toggleSelect(\'' + escapeHtml(f.id) + '\')">' +
-        '<div style="flex:1; min-width:0; display:flex; align-items:center; gap:8px;">' +
-          '<span class="file-title" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + escapeHtml(filename) + '</span>' +
-          epBadge +
+        '<div style="flex:1 1 auto; min-width:0; display:flex; align-items:center; gap:8px; overflow:hidden;">' +
+          '<span class="file-title" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; flex:1 1 auto;">' + escapeHtml(filename) + '</span>' +
+          '<span style="flex-shrink:0;">' + epBadge + '</span>' +
         '</div>' +
       '</div>' +
-      '<div style="width:100%; overflow:hidden;">' + metaHtml + '</div>' +
+      '<div style="width:100%; min-width:0; overflow:hidden;">' + metaHtml + '</div>' +
       '<div class="file-item-footer">' +
-        '<div class="file-size-badge">' + fmtGb(f.size) + '</div>' +
-        '<div class="file-actions">' +
+        '<div class="file-size-badge" style="flex-shrink:0;">' + fmtGb(f.size) + '</div>' +
+        '<div class="file-actions" style="flex-wrap:wrap; gap:6px; justify-content:flex-end;">' +
           openBtn +
           '<button class="btn-base btn-danger btn-sm" onclick="deleteFile(\'' + escapeHtml(f.id) + '\', \'' + escapeHtml(filename) + '\', ' + (Number(f.size) || 0) + ')">🗑️ Delete</button>' +
         '</div>' +

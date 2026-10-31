@@ -17,6 +17,9 @@ async function shutdown(signal: string): Promise<void> {
   database.close();
 }
 
+process.on('uncaughtException', (error) => { app.log.error({ error }, 'Uncaught exception'); });
+process.on('unhandledRejection', (reason) => { app.log.error({ reason }, 'Unhandled rejection'); });
+
 process.once('SIGTERM', () => void shutdown('SIGTERM'));
 process.once('SIGINT', () => void shutdown('SIGINT'));
 
